@@ -16,8 +16,10 @@ DEBUG = os.environ.get("DEBUG", "True").lower() in {"1", "true", "yes"}
 SECRET_KEY = os.environ.get("SECRET_KEY", "")
 if not SECRET_KEY:
     if DEBUG:
-        # Только для локальной разработки; в проде SECRET_KEY обязателен в .env
-        SECRET_KEY = "dev-only-insecure-key-set-SECRET_KEY-in-dotenv"
+        # Эфемерный ключ только для локального DEBUG; не коммитится и не для прода
+        from django.core.management.utils import get_random_secret_key
+
+        SECRET_KEY = get_random_secret_key()
     else:
         raise RuntimeError("SECRET_KEY must be set in environment when DEBUG=False")
 ALLOWED_HOSTS = [
