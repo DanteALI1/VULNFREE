@@ -1,0 +1,17 @@
+{% extends "setup/base_setup.html" %}
+{% block setup_content %}
+<div class="card-free">
+  <h2>Почта</h2>
+  {% if mail_test_message %}
+    <p class="{% if mail_test_ok %}ok{% else %}err{% endif %}">{{ mail_test_message }}</p>
+  {% endif %}
+  <form method="post" class="form-grid">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+      <button class="btn btn-secondary" type="submit" name="do_test" value="1">Проверить</button>
+      <button class="btn" type="submit">Далее</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

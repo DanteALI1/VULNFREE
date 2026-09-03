@@ -1,0 +1,16 @@
+{% for state in states %}
+  {% if state %}
+  <div style="margin-bottom:0.75rem;">
+    <strong>{{ state.get_source_display }}</strong> —
+    {{ state.get_status_display }}
+    {% if state.last_success_at %}· {{ state.last_success_at }}{% endif %}
+    {% if state.items_total %}
+    <div class="progress"><span style="width:{% widthratio state.items_synced state.items_total 100 %}%"></span></div>
+    <small>{{ state.items_synced }} / {{ state.items_total }}</small>
+    {% endif %}
+    {% if state.last_error %}<div class="err">{{ state.last_error|truncatechars:200 }}</div>{% endif %}
+  </div>
+  {% endif %}
+{% empty %}
+  <p>Ещё не запускалось</p>
+{% endfor %}

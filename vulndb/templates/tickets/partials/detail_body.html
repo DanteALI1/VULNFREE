@@ -1,0 +1,42 @@
+<div class="topbar">
+  <h1>{{ ticket.display_number }}</h1>
+  <span>{{ ticket.get_status_display }} · {{ ticket.get_priority_display }}</span>
+</div>
+<p><a href="/vulns/{{ ticket.vulnerability.vuln_id }}/">{{ ticket.vulnerability.vuln_id }}</a> — {{ ticket.title }}</p>
+<p>Создал: {{ ticket.created_by }} · Исполнитель: {{ ticket.assignee|default:"—" }}</p>
+{% if ticket.sla_due_at %}<p>SLA до: {{ ticket.sla_due_at }}</p>{% endif %}
+
+<div class="card-free">
+  <h2>Действия</h2>
+  {% for action in actions %}
+  <form style="display:inline-flex;gap:0.35rem;align-items:center;margin:0.25rem 0;"
+        hx-post="/tickets/{{ ticket.number }}/action/" hx-target="#ticket-detail" hx-swap="innerHTML">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="{{ action }}">
+    {% if action == "assign" %}
+      <select name="assignee_id">
+        <option value="">— исполнитель —</option>
+        {% for u in assignees %}
+          <option value="{{ u.id }}" {% if ticket.assignee_id == u.id %}selected{% endif %}>{{ u }}</option>
+        {% endfor %}
+      </select>
+    {% endif %}
+    <input type="text" name="comment" placeholder="Комментарий" style="width:10rem">
+    <button class="btn btn-sm" type="submit">{{ action }}</button>
+  </form>
+  {% empty %}
+  <p>Нет доступных действий</p>
+  {% endfor %}
+</div>
+
+<div class="card-free">
+  <h2>Таймлайн</h2>
+  <ul>
+  {% for e in events %}
+    <li>{{ e.created_at }} — {{ e.actor|default:"система" }}: <strong>{{ e.action }}</strong>
+      {% if e.old_status %}{{ e.old_status }} → {{ e.new_status }}{% endif %}
+      {% if e.comment %} ({{ e.comment }}){% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+</div>

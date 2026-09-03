@@ -1,0 +1,26 @@
+{% extends "setup/base_setup.html" %}
+{% block setup_content %}
+<div class="card-free" x-data="{ preview: null }">
+  <h2>Брендинг</h2>
+  <form method="post" enctype="multipart/form-data" class="form-grid">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <div>
+      <p>Превью логотипа:</p>
+      <template x-if="preview"><img :src="preview" alt="preview" style="max-height:64px"></template>
+      {% if settings.logo %}<img src="{{ settings.logo.url }}" alt="logo" style="max-height:64px" x-show="!preview">{% endif %}
+    </div>
+    <button class="btn" type="submit">Далее</button>
+  </form>
+  <script>
+    document.querySelector('input[type=file]')?.addEventListener('change', (e) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      const root = e.target.closest('[x-data]');
+      const reader = new FileReader();
+      reader.onload = () => { root._x_dataStack[0].preview = reader.result; };
+      reader.readAsDataURL(f);
+    });
+  </script>
+</div>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Настройки{% endblock %}
+{% block content %}
+<h1>Настройки</h1>
+<div class="tabs">
+  {% for t in tabs %}
+  <a href="/settings/{{ t }}/" class="{% if tab == t %}active{% endif %}">{{ t }}</a>
+  {% endfor %}
+</div>
+
+<div class="card-free">
+{% if tab == "sources" %}
+  <h2>Источники и синхронизация</h2>
+  <form method="post" class="form-grid">{% csrf_token %}{{ form.as_p }}<button class="btn" type="submit">Сохранить</button></form>
+  <hr>
+  <h3>Ручной запуск</h3>
+  <div id="sync-feedback"></div>
+  <button class="btn" hx-post="/settings/sync/nvd/" hx-target="#sync-feedback" hx-headers='{"X-CSRFToken":"{{ csrf_token }}"}'>Синхронизировать NVD</button>
+  <button class="btn btn-secondary" hx-post="/settings/sync/kev/" hx-target="#sync-feedback" hx-headers='{"X-CSRFToken":"{{ csrf_token }}"}'>Синхронизировать KEV</button>
+  <button class="btn btn-secondary" hx-post="/settings/sync/bdu/" hx-target="#sync-feedback" hx-headers='{"X-CSRFToken":"{{ csrf_token }}"}'>Скачать и разобрать БДУ</button>
+  <div hx-get="/settings/sync-status/" hx-trigger="every 5s" hx-swap="innerHTML" style="margin-top:1rem;">
+    {% include "partials/sync_status_list.html" with states=sync_states %}
+  </div>
+{% elif tab == "system" %}
+  <h2>Системные метрики</h2>
+  <div hx-get="/settings/metrics/" hx-trigger="load, every 8s" hx-swap="innerHTML">Загрузка…</div>
+{% elif tab == "telegram" %}
+  <h2>Telegram</h2>
+  <form method="post" class="form-grid">
+    {% csrf_token %}
+    <label><input type="checkbox" name="telegram_enabled" {% if settings.telegram_enabled %}checked{% endif %}> Включено</label>
+    <label>Bot token <input type="text" name="telegram_bot_token" value="{{ settings.telegram_bot_token }}"></label>
+    <label>Default chat ID <input type="text" name="telegram_default_chat_id" value="{{ settings.telegram_default_chat_id }}"></label>
+    <button class="btn" type="submit">Сохранить</button>
+  </form>
+{% elif tab == "auth" %}
+  <h2>Аутентификация</h2>
+  <form method="post" class="form-grid">
+    {% csrf_token %}
+    <label><input type="checkbox" name="auth_local_enabled" {% if settings.auth_local_enabled %}checked{% endif %}> Локальная</label>
+    <label><input type="checkbox" name="auth_google_enabled" {% if settings.auth_google_enabled %}checked{% endif %}> Google (stub 501)</label>
+    <label><input type="checkbox" name="auth_sso_enabled" {% if settings.auth_sso_enabled %}checked{% endif %}> SSO (stub 501)</label>
+    <label><input type="checkbox" name="auth_ldap_enabled" {% if settings.auth_ldap_enabled %}checked{% endif %}> LDAP (stub 501)</label>
+    <button class="btn" type="submit">Сохранить</button>
+  </form>
+{% elif form %}
+  <form method="post" enctype="multipart/form-data" class="form-grid">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="btn" type="submit">Сохранить</button>
+  </form>
+{% else %}
+  <p>Нет формы для вкладки {{ tab }}</p>
+{% endif %}
+</div>
+{% endblock %}

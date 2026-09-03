@@ -1,0 +1,24 @@
+<table>
+  <thead><tr><th>ID</th><th>Заголовок</th><th>Vendor</th><th>Severity</th><th>CVSS</th><th>Бейджи</th></tr></thead>
+  <tbody>
+  {% for v in page %}
+    <tr>
+      <td><a href="/vulns/{{ v.vuln_id }}/">{{ v.vuln_id }}</a></td>
+      <td>{{ v.title|truncatechars:90 }}</td>
+      <td>{{ v.vendor|truncatechars:40 }}</td>
+      <td><span class="badge badge-sev-{{ v.severity }}">{{ v.severity }}</span></td>
+      <td>{{ v.cvss_score|default:"—" }}</td>
+      <td>{% for b in v.badges %}<span class="badge badge-{{ b|lower }}">{{ b }}</span> {% endfor %}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6">Ничего не найдено</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if page.has_other_pages %}
+<div style="margin-top:0.75rem;">
+  {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">←</a>{% endif %}
+  стр. {{ page.number }} / {{ page.paginator.num_pages }}
+  {% if page.has_next %}<a href="?page={{ page.next_page_number }}">→</a>{% endif %}
+</div>
+{% endif %}

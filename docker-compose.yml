@@ -1,0 +1,73 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: vulndb
+      POSTGRES_USER: vulndb
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vulndb}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vulndb -d vulndb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://vulndb:${POSTGRES_PASSWORD:-vulndb}@db:5432/vulndb
+      REDIS_URL: redis://redis:6379/0
+      ALLOWED_HOSTS: localhost,127.0.0.1,web
+    ports:
+      - "8000:8000"
+    volumes:
+      - media_data:/app/media
+      - static_data:/app/staticfiles
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: celery -A vulndb worker -l info
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://vulndb:${POSTGRES_PASSWORD:-vulndb}@db:5432/vulndb
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - media_data:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  beat:
+    build: .
+    command: celery -A vulndb beat -l info
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://vulndb:${POSTGRES_PASSWORD:-vulndb}@db:5432/vulndb
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  media_data:
+  static_data:

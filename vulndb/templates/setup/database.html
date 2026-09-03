@@ -1,0 +1,25 @@
+{% extends "setup/base_setup.html" %}
+{% block setup_content %}
+<div class="card-free">
+  <h2>База данных</h2>
+  <p>Пароль БД хранится только в <code>.env</code> (<code>DATABASE_URL</code> / <code>POSTGRES_PASSWORD</code>), не в модели.</p>
+  <p>Docker Compose уже поднимает сервис <code>db</code> — можно пропустить этот шаг.</p>
+  {% if db_test_message %}
+    <p class="{% if db_test_ok %}ok{% else %}err{% endif %}">{{ db_test_message }}</p>
+  {% endif %}
+  <form method="post" class="form-grid" x-data="{ action: 'save' }">
+    {% csrf_token %}
+    {{ form.db_host.label_tag }}{{ form.db_host }}
+    {{ form.db_port.label_tag }}{{ form.db_port }}
+    {{ form.db_name.label_tag }}{{ form.db_name }}
+    {{ form.db_user.label_tag }}{{ form.db_user }}
+    {{ form.db_sslmode.label_tag }}{{ form.db_sslmode }}
+    <input type="hidden" name="action" :value="action">
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+      <button class="btn" type="submit" @click="action='save'">Сохранить и далее</button>
+      <button class="btn btn-secondary" type="submit" @click="action='test'">Проверить подключение</button>
+      <button class="btn btn-secondary" type="submit" name="skip" value="on" @click="action='skip'">Пропустить</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

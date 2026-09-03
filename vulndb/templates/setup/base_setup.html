@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Мастер настройки{% endblock %}
+{% block body %}
+<div class="setup-wrap">
+  <h1>{{ branding.product_name|default:"VULNDB" }} — первичная настройка</h1>
+  <div class="setup-steps">
+    {% for name, label in steps %}
+      <span class="{% if name == current_step %}active{% elif forloop.counter < step_index %}done{% endif %}">{{ forloop.counter }}. {{ label }}</span>
+    {% endfor %}
+  </div>
+  {% if messages %}
+  <ul class="messages">{% for message in messages %}<li class="{{ message.tags }}">{{ message }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% block setup_content %}{% endblock %}
+</div>
+{% endblock %}

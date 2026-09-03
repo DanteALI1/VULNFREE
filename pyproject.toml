@@ -1,0 +1,23 @@
+[project]
+name = "vulndb"
+version = "1.0.0"
+description = "VULNDB — локальная база данных уязвимостей"
+requires-python = ">=3.12"
+readme = "README.md"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = ["migrations", ".venv", "staticfiles", "media"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "vulndb.settings"
+python_files = ["test_*.py"]
+addopts = "-ra"
+testpaths = ["tests"]
