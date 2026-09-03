@@ -197,11 +197,18 @@ else
   SECRET_KEY="$(rand_secret)"
 fi
 
+LAN_HOSTS="$(hostname -I 2>/dev/null | xargs | tr ' ' ',' || true)"
+ALLOWED_HOSTS_VALUE="${DOMAIN},localhost,127.0.0.1"
+if [[ -n "${LAN_HOSTS}" ]]; then
+  ALLOWED_HOSTS_VALUE="${ALLOWED_HOSTS_VALUE},${LAN_HOSTS}"
+fi
+
 cat > "${APP_DIR}/.env" <<EOF
 # Сгенерировано scripts/install.sh — не коммитить
 SECRET_KEY=${SECRET_KEY}
 DEBUG=False
-ALLOWED_HOSTS=${DOMAIN},localhost,127.0.0.1
+ALLOWED_HOSTS=${ALLOWED_HOSTS_VALUE}
+ALLOW_LAN_HOSTS=True
 DATABASE_URL=postgres://${DB_USER}:${DB_PASS}@127.0.0.1:5432/${DB_NAME}
 REDIS_URL=redis://127.0.0.1:6379/0
 POSTGRES_PASSWORD=${DB_PASS}
