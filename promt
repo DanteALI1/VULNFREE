@@ -1,0 +1,223 @@
+ЗАДАНИЕ ДЛЯ AI-ИНЖЕНЕРА: VULNDB
+Ты — senior full-stack / Django инженер с опытом production-развёртывания.
+Создай с нуля полностью рабочее, готовое к продакшену web-приложение.
+Никаких заглушек, `TODO`, `pass  # implement later`, `mock data` вместо реальной логики — если что-то не помещается в ответ, продолжай в следующем сообщении, но не сокращай функциональность.
+НАЗВАНИЕ: VULNDB (локальная база данных уязвимостей)
+ЯЗЫК ИНТЕРФЕЙСА: русский (ru-RU)
+ЧАСОВОЙ ПОЯС: Europe/Moscow (`USE_TZ=True`, `TIME_ZONE="Europe/Moscow"`)
+ЦЕЛЬ: локальный каталог уязвимостей (NVD + CISA KEV + БДУ ФСТЭК + внутренние ID) + заявки на устранение + мастер первичной настройки + уведомления.
+---
+0. ПОРЯДОК РАБОТЫ (обязательно соблюдать)
+Сначала выведи полное дерево репозитория (все файлы, включая миграции, шаблоны, статику, docker-файлы).
+Затем выводи файлы в таком порядке: `pyproject.toml`/`requirements.txt` → настройки Django (`settings.py`, `.env.example`) → модели → миграции → сервисы/задачи Celery → формы → views → urls → templates → static → docker/deploy → тесты → README.
+Каждый блок кода начинай с комментария вида `# path: vulndb/apps/vulns/models.py`, чтобы файлы было легко собрать в проект.
+Не переписывай один и тот же файл частями в разных местах ответа — один файл = один цельный блок.
+В конце — итоговый чек-лист «Критерии готовности» (см. §9) с явной пометкой ✅/❌ по каждому пункту и обоснованием.
+---
+1. СТЕК (только open-source, без платных SDK)
+Python 3.12+
+Django 5.1
+PostgreSQL 16 (прод); SQLite допустим для DEV, если `DATABASE_URL` пуст
+Redis 7 + Celery worker + Celery Beat
+Gunicorn + WhiteNoise
+Templates: Django + HTMX + Alpine.js (вендорить локально в `static/vendor/`, без CDN, указать версии и лицензии в `static/vendor/README.md`)
+Библиотеки: `openpyxl` (XLSX БДУ), `requests` (с ретраями/таймаутами), `cryptography`, `psutil`, `Pillow`, `psycopg[binary]`, `python-dotenv`, `django-htmx`
+Docker + docker-compose (`web`, `db`, `redis`, `worker`, `beat`)
+CI: GitHub Actions (`migrate --check`, `manage.py check`, `ruff`, `pytest`)
+Линт/формат: `ruff` (+ `ruff format`)
+Все версии зависимостей — зафиксированы (`==`), не диапазоны
+Явно НЕ используй: собственную wiki-систему, CDN-скрипты, саморегистрацию пользователей, DRF (если не понадобится — обычные Django views/HTMX достаточно), заглушечные тесты без реальных assert.
+Безопасность (обязательный минимум)
+`CSRF_COOKIE_SECURE`/`SESSION_COOKIE_SECURE` управляются через `.env` (True в проде)
+Пароли — только через `django.contrib.auth` хэширование (PBKDF2/Argon2, указать `PASSWORD_HASHERS`)
+Секреты (SECRET_KEY, пароль БД, токены) — только в `.env`, не в коде и не в миграциях
+Все внешние HTTP-запросы (`requests.get/post`) — с `timeout=` и обработкой исключений, без бесконечных ретраев
+Валидация загружаемых файлов (логотип, XLSX) по размеру и типу
+---
+2. АРХИТЕКТУРА ПРИЛОЖЕНИЙ
+Пакет: `vulndb/apps/*`
+1) core
+`SystemSettings` (singleton, pk=1, доступ через `SystemSettings.load()`)
+мастер настройки `/setup/`
+dashboard, settings, `/healthz` (liveness, без обращения к БД/Redis), `/readyz` (проверяет БД + Redis)
+middleware: пока `setup_completed=False` — редирект на wizard (кроме `/healthz`, `/static/`, `/media/`)
+branding context processor (product_name, logo, цвета — доступны во всех шаблонах)
+системные метрики (CPU/RAM/SWAP/диски) через `psutil`, обновление по HTMX-ポллингу раз в 5–10 сек, не блокируя запрос
+2) vulns
+каталог `Vulnerability`
+`LocalIdSequence`
+`SyncState`
+Celery-задачи: `sync_nvd`, `sync_kev`, `sync_bdu`, `tick_sync_schedules`
+list / detail / create local, пагинация (`Paginator`, 25–50 на страницу), полнотекстовый поиск по `title`/`vendor`/`product_name` (можно через `icontains`, опционально Postgres `SearchVector` — не обязательно)
+3) tickets
+`Ticket` + `TicketEvent`
+статусы и действия workflow с явной матрицей переходов (описать в docstring `services.py`)
+поле `sla_due_at` (хранить; авторасчёт не обязателен, но нужно поле `priority→sla_hours` mapping как константа для будущего использования)
+4) accounts
+кастомный `User` + `Role`
+login/logout (локальная аутентификация), `LoginRequiredMiddleware` для всего, кроме `/setup/`, `/accounts/login/`, `/healthz`
+Google/SSO/LDAP: только настройки в UI + stub-роуты, возвращающие `501 Not Implemented` с понятным сообщением (не молчаливый провал)
+5) notify
+email + Telegram при событиях заявок (создание, смена статуса, назначение)
+`NotificationLog` (без отдельного UI, но с полем `error` для диагностики недоставленных)
+отправка — асинхронно через Celery task, с логированием неудач без падения основного потока
+6) audit
+`AuditEntry` + `log_action(user, action, target, meta=None)` — вызывать при: логине, создании/изменении уязвимости, действиях с заявками, изменении настроек
+7) licensing — ОПЦИОНАЛЬНО, но реши однозначно
+Сделай систему без обязательной лицензии по умолчанию. Выбери один вариант и следуй ему целиком:
+Вариант A (рекомендуется): полностью исключить `LicenseGateMiddleware`/`.novalic`/license_server из проекта.
+Вариант B: оставить модуль, но `DEBUG=True` или отсутствие файла лицензии → статус всегда `valid`, никаких 403 после `/setup/`.
+Не блокируй UI 403 после setup ни при каком варианте.
+---
+3. МОДЕЛИ (ключевые поля + ограничения)
+SystemSettings
+`setup_completed`, `setup_step`
+`organization_name`, `local_id_prefix` (default `ACME`), `product_name` (`VULNDB`)
+`login_title`, `login_text`, `logo`
+NVD: `nvd_api_key`, `nvd_enabled=True`, `nvd_sync_interval_minutes=60`
+KEV: `kev_enabled=True`, `kev_sync_interval_minutes=360`
+БДУ: `bdu_enabled=True`, `bdu_xlsx_url="https://bdu.fstec.ru/files/documents/vullist.xlsx"`, `bdu_sync_interval_minutes=1440`, `bdu_verify_ssl=False`
+почта (smtp/exchange/office365/gmail — поля с явными названиями провайдера), `telegram_*`, `auth_*` флаги
+`db_host`/`db_port`/`db_name`/`db_user`/`db_sslmode`/`db_configured` (пароль БД только в `.env`, никогда не хранить в модели/БД в открытом виде)
+`RESERVED_PREFIXES = {"CVE", "BDU"}` — константа класса
+Vulnerability
+`vuln_id` (unique, max 64), `record_type ∈ {cve, bdu, local}`
+`title`, `description_nvd`, `description_bdu`
+`severity`, `cvss_score`, `cvss_v31`/`cvss_v30`/`cvss_v2`/`cvss_v40` (JSONField)
+`cwe`, `cpe`, `references` (JSONField)
+`in_kev`, `kev_data` (JSONField)
+`bdu_id`, `has_bdu`, `bdu_raw` (JSONField)
+`vendor = TextField()` — КРИТИЧНО: не `CharField(max_length=255)`
+`product_name = TextField()` — строки БДУ бывают > 255 символов
+`product_version = TextField()`
+`remediation = TextField()`
+`vuln_status`, `exploit_present`
+`published_at`, `modified_at`, `raw_nvd` (JSONField), `created_at`, `updated_at`
+индексы: `vuln_id` (unique уже даёт индекс), составной индекс `(record_type, severity)`, индекс на `in_kev`
+property `badges` → список из `KEV`/`BDU`/`LOCAL`
+LocalIdSequence
+unique `(prefix, year)`, `last_number`
+`next_id()` — атомарно через `select_for_update()` внутри транзакции → `"{PREFIX}-{YEAR}-{NNNN}"` (например `ACME-2026-0001`)
+`validate_prefix`: 2–16 символов `[A-Z0-9]`, запрещены `CVE` и `BDU` (сверка с `RESERVED_PREFIXES`)
+SyncState
+`source ∈ {nvd, kev, bdu}` unique
+`status ∈ {idle, running, success, error}`, `checkpoint` (JSONField), `last_success_at`, `last_error` (TextField), `items_total`, `items_synced`, `meta` (JSONField)
+Ticket
+`number` (автоинкремент, старт > 1000) → отображение `T-{number}`
+`status`: `new → triage → in_progress → waiting → resolved → closed|rejected`
+`priority: p1–p4`
+FK `vulnerability`, `created_by`, `assignee` (nullable)
+поля причины/комментария, `sla_due_at`
+`TicketEvent` — таймлайн (кто, что, когда, старый/новый статус)
+User / Role
+роли: `platform_admin`, `analyst`, `ticket_assignee`, `verifier`
+`full_name`, `role`, `is_verifier`, `telegram_chat_id`
+`has_role(role)`: superuser и `platform_admin` проходят проверку для любой роли
+Матрица прав (реализовать как явные проверки в `services.py`, не разбросано по views):
+`platform_admin`: настройки, `force_close`
+`analyst`: создать локальную уязвимость, создать заявку, `triage`/`assign`/`reject`
+`ticket_assignee`: `start`/`wait`/`resume`/`resolve`
+`verifier`: `confirm_close`/`reopen`
+закрыть заявку может: создатель ИЛИ verifier ИЛИ admin (assignee сам себе закрыть не может — покрыть тестом)
+---
+4. СИНХРОНИЗАЦИЯ ИСТОЧНИКОВ (КРИТИЧНО)
+Общие требования ко всем задачам синхронизации:
+каждая задача оборачивается в `try/except`, при ошибке — записывает `last_error` в `SyncState`, не роняет Celery worker
+сетевые запросы — с `timeout` (например 30 сек) и обработкой `429 Too Many Requests` (экспоненциальный backoff, максимум 3 попытки)
+прогресс пишется в `SyncState.items_synced`/`items_total`, чтобы UI мог показать прогресс-бар
+NVD
+URL: `https://services.nvd.nist.gov/rest/json/cves/2.0`
+header `apiKey`, если задан (без ключа — более строгий rate-limit, учесть паузы между запросами)
+`resultsPerPage=100`, лимит ~500 записей за один прогон
+checkpoint: `startIndex`, затем `lastModStartDate`/`lastModEndDate`
+upsert CVE с CVSS/CWE/CPE/refs/`raw_nvd`
+при `403` / ошибке / пустом ответе: если каталог пуст — засеять demo CVE (2–3 реалистичные записи), чтобы UI не был пустым
+CISA KEV — ОБЯЗАТЕЛЬНО ВМЕСТЕ С NVD
+URL: `https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json`
+обновляет `in_kev=True` + `kev_data`; если CVE нет в базе — создать stub-запись
+ПРАВИЛО: `sync_nvd` всегда в конце своего выполнения (успех / demo-fallback / exception) — если `kev_enabled=True`, синхронно вызывает `sync_kev()`
+`tick_sync_schedules`: если `nvd_enabled=True` — не планировать отдельный KEV-прогон по расписанию (KEV подтягивается внутри `sync_nvd`); KEV планируется отдельно только когда `nvd_enabled=False`
+в `wizard finish`: если `nvd_enabled` → запускать только `sync_nvd.delay()` (KEV подтянется автоматически); иначе если `kev_enabled` → `sync_kev.delay()`
+БДУ ФСТЭК
+скачать XLSX с `bdu_xlsx_url` (`verify=bdu_verify_ssl`, обычно `False` — учитывай `urllib3` warning suppression)
+парсинг `openpyxl` в режиме `read_only=True` (файл может быть большим — не грузить всё в память дважды)
+заголовок на 3-й строке; колонки — по позиции, а не по названию (названия могут отличаться между версиями файла)
+если в `other_ids`/`refs` встречается CVE → апсертить основную CVE-запись и дописать BDU-поля к ней
+иначе создать запись `record_type=bdu`, `vuln_id="BDU:{id}"`
+`vendor`/`product_name` писать в `TextField` без обрезки (это причина падений на `varchar(255)` — явно предотвратить в модели, не в коде парсера)
+при ошибке скачивания/парсинга — не падать всем worker'ом, писать `last_error`, оставить fallback на demo-CVE, если каталог пуст
+Celery Beat
+`tick_sync_schedules` — каждые 60 сек, проверяет для каждого источника, не пора ли запускать sync по `sync_interval_minutes` и `last_success_at`
+значения по умолчанию: NVD 60 мин, KEV 360 мин, BDU 1440 мин
+ручной запуск — кнопки в Settings → Sources, вызывающие `.delay()` и сразу возвращающие HTMX-фрагмент со статусом "запущено"
+---
+5. МАСТЕР НАСТРОЙКИ (7 ШАГОВ)
+URL `/setup/`, доступен пока `setup_completed=False`. Прогресс хранится в `SystemSettings.setup_step`, чтобы при обрыве сессии мастер продолжался с того же шага.
+organization — название организации + `local_id_prefix` (с валидацией на лету через HTMX)
+branding — `product_name`, `login_title`/`login_text`, загрузка логотипа (с превью)
+database — подключиться / создать PG / пропустить (docker-compose уже поднимает `db`)
+sources — тумблеры NVD/KEV/BDU, ключ NVD, URL и интервалы БДУ
+admin — создать `platform_admin` (первый superuser)
+mail — SMTP/Exchange (можно пропустить, отправить тестовое письмо кнопкой "Проверить")
+finish — `setup_completed=True`, `migrate`, запуск задач синхронизации согласно правилу из §4
+После `finish` → редирект на `/accounts/login/`.
+---
+6. UI / МАРШРУТЫ
+Навигация: Дашборд | Уязвимости | Заявки | Настройки
+`/` — dashboard: счётчики CRITICAL/HIGH/KEV/локальных, список "требуют внимания", открытые заявки, статус последней синхронизации по каждому источнику
+`/vulns/` — фильтры: `q`, `type` (cve/bdu/local), `severity`, `cvss_min`/`cvss_max`, `kev` (да/нет), `days` (обновлено за N дней); пагинация
+`/vulns/<id>/` — карточка: вкладки NVD ↔ BDU, блок CVSS (все версии), CWE/CPE/refs, KEV-блок, связанные заявки, сырой `bdu_raw`/`raw_nvd` (свёрнутый `<details>`)
+`/vulns/local/new/` — создание локальной записи (роль `analyst`+)
+`/tickets/`, `/tickets/new/`, `/tickets/<n>/action/` (HTMX-эндпоинт для смены статуса без перезагрузки страницы)
+`/settings/` вкладки: org, branding, sources (+кнопки ручного sync и индикатор прогресса), database, auth, mail, telegram, system (метрики psutil)
+`/healthz`, `/readyz`
+`/accounts/login/`, `/accounts/logout/`
+Визуал: тёмный sidebar `#1b2430`, акцент `#0a7ab8`, стиль enterprise-консоли (не «фиолетовый SaaS-лендинг»).
+Шрифты: выразительные, не Inter/Roboto по умолчанию (Segoe UI / Golos Text допустимы), подключены локально.
+Бейджи: `KEV`, `BDU`, `LOCAL` — с разными цветами, но в общей палитре, не кислотные.
+Все интерактивные элементы (фильтры, действия заявок, sync-кнопки) — через HTMX, полная перезагрузка страницы только при навигации.
+---
+7. DOCKER / DEPLOY
+`docker-compose.yml`:
+`web` (entrypoint: `migrate` → `collectstatic --noinput` → `gunicorn vulndb.wsgi:application --bind 0.0.0.0:8000 --workers 3`)
+`db` (postgres:16, volume для персистентности)
+`redis`
+`worker` (`celery -A vulndb worker -l info`)
+`beat` (`celery -A vulndb beat -l info`)
+healthcheck для `db`/`redis`, `web` зависит от них через `depends_on: condition: service_healthy`
+`.env.example`: `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `DATABASE_URL`, `REDIS_URL`, `NVD_API_KEY` (опционально, можно и через UI), почтовые/telegram переменные — с комментариями на русском для каждой.
+Скрипты:
+`scripts/install-prod.sh` — systemd unit + nginx конфиг + venv
+`scripts/install-docker-dev.sh` — быстрый старт через docker-compose
+nginx: `staticfiles/`, `media/`, проксирование на gunicorn, лимит размера загружаемых файлов (для логотипа).
+---
+8. ЧТО ВЫДАТЬ
+Полную структуру репозитория и все ключевые файлы с кодом (см. порядок в §0)
+Миграции Django (обязательно проверь, что `vendor`/`product_name`/`product_version` — `TextField`)
+Celery tasks с явной реализацией правила «KEV вместе с NVD» и docstring, объясняющим порядок
+Templates + статика (CSS/JS вендорено локально, без CDN)
+`docker-compose.yml` + `Dockerfile` + `.env.example`
+`README.md` на русском: установка, миграции, первый запуск, синхронизация, демо-аккаунты и их пароли, как пересоздать `platform_admin`, если доступ потерян
+Тесты (`pytest` + `pytest-django`): workflow заявок (включая «assignee не может закрыть сам себе»), валидация `local_id_prefix` (включая запрет `CVE`/`BDU`), `LocalIdSequence.next_id()` под конкурентным доступом, парсинг БДУ на TextField без обрезки
+Команды запуска (проверь, что они реально работают с выданным кодом):
+```
+   docker compose up -d
+   python manage.py migrate
+   python manage.py createsuperuser   # или через /setup/
+   # затем в UI: Settings → Sources → «Синхронизировать NVD» (подтянет KEV автоматически)
+   # и «Скачать и разобрать БДУ»
+   ```
+---
+9. КРИТЕРИИ ГОТОВНОСТИ (сверить в конце ответа, ✅/❌ по каждому)
+[ ] Wizard из 7 шагов завершает setup и не даёт зайти повторно после `finish`
+[ ] Dashboard показывает реальные KPI из БД, а не заглушки
+[ ] NVD sync работает; сразу после него KEV помечает `in_kev` согласно правилу из §4
+[ ] БДУ sync не падает на `varchar(255)` — `vendor`/`product_name`/`product_version` это `TextField` и в модели, и в миграции
+[ ] Карточка CVE показывает данные NVD + BDU + KEV одновременно, если они есть
+[ ] Локальные ID формата `PREFIX-YYYY-NNNN`, `CVE`/`BDU` как префиксы запрещены (проверено тестом)
+[ ] Tickets workflow соответствует ролевой матрице из §3, включая запрет assignee закрывать самому себе
+[ ] Система не требует коммерческую лицензию для работы после `/setup/`
+[ ] `docker compose up -d` поднимает весь стек и `/healthz`, `/readyz` отвечают `200`
+[ ] Нет CDN-зависимостей, нет хардкода секретов в коде
+[ ] Тесты из §8.7 проходят (`pytest`)
+Если ответ не помещается в одно сообщение — заканчивай на границе файла (не обрывай файл на середине) и продолжай в следующем сообщении до полного завершения проекта. Всегда указывай путь файла в комментарии над блоком кода.
