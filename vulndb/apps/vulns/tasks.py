@@ -152,9 +152,7 @@ DEMO_CVES = [
             "descriptions": [
                 {
                     "lang": "en",
-                    "value": (
-                        "Demo critical remote code execution in ExampleServer auth module."
-                    ),
+                    "value": ("Demo critical remote code execution in ExampleServer auth module."),
                 }
             ],
             "metrics": {

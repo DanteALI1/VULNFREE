@@ -74,8 +74,16 @@ class Ticket(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.number:
-            last = Ticket.objects.order_by("-number").values_list("number", flat=True).first()
-            self.number = max((last or 1000) + 1, 1001)
+            from django.db import transaction
+
+            with transaction.atomic():
+                last = (
+                    Ticket.objects.select_for_update()
+                    .order_by("-number")
+                    .values_list("number", flat=True)
+                    .first()
+                )
+                self.number = max((last or 1000) + 1, 1001)
         if not self.title and self.vulnerability_id:
             self.title = f"Устранение {self.vulnerability.vuln_id}"
         super().save(*args, **kwargs)

@@ -12,8 +12,9 @@ def validate_logo_file(value) -> None:
     if value.size > 2 * 1024 * 1024:
         raise ValidationError("Логотип не должен превышать 2 МБ.")
     name = (value.name or "").lower()
-    if not name.endswith((".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif")):
-        raise ValidationError("Допустимы только PNG, JPG, WEBP, SVG, GIF.")
+    # ImageField/Pillow: raster only (без SVG)
+    if not name.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
+        raise ValidationError("Допустимы только PNG, JPG, WEBP, GIF.")
 
 
 class SystemSettings(models.Model):

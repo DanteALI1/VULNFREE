@@ -76,9 +76,10 @@ python manage.py migrate --check
 ```bash
 python manage.py shell -c "
 from vulndb.apps.accounts.models import User, Role
-User.objects.create_user('analyst', password='Passw0rd!', role=Role.ANALYST, full_name='Аналитик')
-User.objects.create_user('assignee', password='Passw0rd!', role=Role.TICKET_ASSIGNEE)
-User.objects.create_user('verifier', password='Passw0rd!', role=Role.VERIFIER, is_verifier=True)
+# Пароль: используйте сложный (не словарный), например Str0ng-Passw0rd!
+User.objects.create_user('analyst', password='Str0ng-Passw0rd!', role=Role.ANALYST, full_name='Аналитик')
+User.objects.create_user('assignee', password='Str0ng-Passw0rd!', role=Role.TICKET_ASSIGNEE)
+User.objects.create_user('verifier', password='Str0ng-Passw0rd!', role=Role.VERIFIER, is_verifier=True)
 "
 ```
 

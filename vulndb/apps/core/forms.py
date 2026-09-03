@@ -41,6 +41,35 @@ class BrandingForm(forms.Form):
         return logo
 
 
+class MailSetupForm(forms.Form):
+    mail_enabled = forms.BooleanField(label="Включить почту", required=False)
+    mail_provider = forms.ChoiceField(
+        label="Провайдер",
+        choices=[
+            ("smtp", "SMTP"),
+            ("exchange", "Exchange"),
+            ("office365", "Office 365"),
+            ("gmail", "Gmail"),
+        ],
+        required=False,
+    )
+    mail_smtp_host = forms.CharField(label="SMTP хост", required=False)
+    mail_smtp_port = forms.IntegerField(label="SMTP порт", required=False, initial=587)
+    mail_smtp_user = forms.CharField(label="SMTP пользователь", required=False)
+    mail_smtp_password = forms.CharField(
+        label="SMTP пароль", required=False, widget=forms.PasswordInput
+    )
+    mail_use_tls = forms.BooleanField(label="TLS", required=False, initial=True)
+    mail_from_address = forms.EmailField(label="From", required=False)
+    mail_exchange_server = forms.CharField(label="Exchange server", required=False)
+    mail_office365_tenant = forms.CharField(label="Office365 tenant", required=False)
+    mail_gmail_app_password = forms.CharField(
+        label="Gmail app password", required=False, widget=forms.PasswordInput
+    )
+    test_to = forms.EmailField(label="Адрес для проверки", required=False)
+    skip = forms.BooleanField(label="Пропустить", required=False)
+
+
 class DatabaseForm(forms.Form):
     db_host = forms.CharField(label="Хост", required=False)
     db_port = forms.IntegerField(label="Порт", required=False, initial=5432)
@@ -48,6 +77,16 @@ class DatabaseForm(forms.Form):
     db_user = forms.CharField(label="Пользователь", required=False)
     db_sslmode = forms.CharField(label="SSL mode", required=False, initial="prefer")
     skip = forms.BooleanField(label="Пропустить (использовать текущую БД)", required=False)
+    action = forms.ChoiceField(
+        label="Действие",
+        choices=[
+            ("save", "Сохранить метаданные"),
+            ("test", "Проверить подключение"),
+            ("skip", "Пропустить"),
+        ],
+        required=False,
+        initial="save",
+    )
 
 
 class SourcesForm(forms.Form):
@@ -76,35 +115,17 @@ class AdminSetupForm(forms.Form):
     password2 = forms.CharField(label="Повтор пароля", widget=forms.PasswordInput)
 
     def clean(self):
+        from django.contrib.auth.password_validation import validate_password
+
         cleaned = super().clean()
         if cleaned.get("password1") != cleaned.get("password2"):
             raise forms.ValidationError("Пароли не совпадают.")
         if User.objects.filter(username=cleaned.get("username")).exists():
             raise forms.ValidationError("Пользователь уже существует.")
+        password = cleaned.get("password1")
+        if password:
+            validate_password(password)
         return cleaned
-
-
-class MailSetupForm(forms.Form):
-    mail_enabled = forms.BooleanField(label="Включить почту", required=False)
-    mail_provider = forms.ChoiceField(
-        label="Провайдер",
-        choices=[
-            ("smtp", "SMTP"),
-            ("exchange", "Exchange"),
-            ("office365", "Office 365"),
-            ("gmail", "Gmail"),
-        ],
-        required=False,
-    )
-    mail_smtp_host = forms.CharField(label="SMTP хост", required=False)
-    mail_smtp_port = forms.IntegerField(label="SMTP порт", required=False, initial=587)
-    mail_smtp_user = forms.CharField(label="SMTP пользователь", required=False)
-    mail_smtp_password = forms.CharField(
-        label="SMTP пароль", required=False, widget=forms.PasswordInput
-    )
-    mail_use_tls = forms.BooleanField(label="TLS", required=False, initial=True)
-    mail_from_address = forms.EmailField(label="From", required=False)
-    skip = forms.BooleanField(label="Пропустить", required=False)
 
 
 class LocalVulnerabilityForm(forms.ModelForm):

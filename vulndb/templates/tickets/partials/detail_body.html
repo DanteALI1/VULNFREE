@@ -9,9 +9,18 @@
 <div class="card-free">
   <h2>Действия</h2>
   {% for action in actions %}
-  <form style="display:inline" hx-post="/tickets/{{ ticket.number }}/action/" hx-target="#ticket-detail" hx-swap="innerHTML">
+  <form style="display:inline-flex;gap:0.35rem;align-items:center;margin:0.25rem 0;"
+        hx-post="/tickets/{{ ticket.number }}/action/" hx-target="#ticket-detail" hx-swap="innerHTML">
     {% csrf_token %}
     <input type="hidden" name="action" value="{{ action }}">
+    {% if action == "assign" %}
+      <select name="assignee_id">
+        <option value="">— исполнитель —</option>
+        {% for u in assignees %}
+          <option value="{{ u.id }}" {% if ticket.assignee_id == u.id %}selected{% endif %}>{{ u }}</option>
+        {% endfor %}
+      </select>
+    {% endif %}
     <input type="text" name="comment" placeholder="Комментарий" style="width:10rem">
     <button class="btn btn-sm" type="submit">{{ action }}</button>
   </form>

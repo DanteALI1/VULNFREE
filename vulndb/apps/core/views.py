@@ -39,6 +39,86 @@ SETUP_STEPS = [
 ]
 
 
+def _apply_mail_form(s: SystemSettings, data: dict) -> None:
+    for field in (
+        "mail_enabled",
+        "mail_provider",
+        "mail_smtp_host",
+        "mail_smtp_port",
+        "mail_smtp_user",
+        "mail_smtp_password",
+        "mail_use_tls",
+        "mail_from_address",
+        "mail_exchange_server",
+        "mail_office365_tenant",
+        "mail_gmail_app_password",
+    ):
+        if data.get(field) is not None:
+            setattr(s, field, data[field])
+
+
+def _test_db_connection(data: dict) -> tuple[bool, str]:
+    """Проверка подключения к PostgreSQL. Пароль только из DATABASE_URL / POSTGRES_PASSWORD."""
+    import os
+    from urllib.parse import urlparse
+
+    host = data.get("db_host") or ""
+    if not host:
+        return False, "Укажите хост БД или нажмите «Пропустить»."
+    password = os.environ.get("POSTGRES_PASSWORD", "")
+    db_url = os.environ.get("DATABASE_URL", "")
+    if db_url:
+        parsed = urlparse(db_url)
+        password = parsed.password or password
+    try:
+        import psycopg
+
+        with psycopg.connect(
+            host=host,
+            port=int(data.get("db_port") or 5432),
+            dbname=data.get("db_name") or "vulndb",
+            user=data.get("db_user") or "vulndb",
+            password=password,
+            connect_timeout=5,
+        ) as conn:
+            conn.execute("SELECT 1")
+        return True, "Подключение к PostgreSQL успешно."
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Ошибка подключения: {exc}"
+
+
+def _send_test_mail(data: dict) -> tuple[bool, str]:
+    from django.conf import settings as dj_settings
+    from django.core.mail import get_connection, send_mail
+
+    to = data.get("test_to") or data.get("mail_from_address")
+    if not to:
+        return False, "Укажите адрес для проверки (test_to или From)."
+    host = data.get("mail_smtp_host") or dj_settings.EMAIL_HOST
+    if not host:
+        return False, "SMTP хост не задан — укажите или пропустите шаг."
+    try:
+        connection = get_connection(
+            host=host,
+            port=int(data.get("mail_smtp_port") or 587),
+            username=data.get("mail_smtp_user") or "",
+            password=data.get("mail_smtp_password") or data.get("mail_gmail_app_password") or "",
+            use_tls=bool(data.get("mail_use_tls")),
+            timeout=15,
+        )
+        send_mail(
+            "VULNDB — тестовое письмо",
+            "Если вы видите это сообщение, SMTP настроен корректно.",
+            data.get("mail_from_address") or dj_settings.DEFAULT_FROM_EMAIL,
+            [to],
+            connection=connection,
+            fail_silently=False,
+        )
+        return True, f"Тестовое письмо отправлено на {to}."
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Не удалось отправить: {exc}"
+
+
 @require_GET
 def healthz(request: HttpRequest) -> HttpResponse:
     """Liveness — без обращения к БД/Redis."""
@@ -81,10 +161,8 @@ def dashboard(request: HttpRequest) -> HttpResponse:
         "open_tickets": Ticket.objects.exclude(
             status__in=[Ticket.Status.CLOSED, Ticket.Status.REJECTED]
         ).select_related("vulnerability", "assignee")[:10],
-        "sync_states": {s.source: s for s in SyncState.objects.all()},
+        "sync_states": list(SyncState.objects.all()),
     }
-    for src in SyncState.Source.values:
-        ctx["sync_states"].setdefault(src, None)
     return render(request, "core/dashboard.html", ctx)
 
 
@@ -107,7 +185,13 @@ def setup_wizard(request: HttpRequest, step: str | None = None) -> HttpResponse:
     if step not in step_names:
         return redirect(f"/setup/{step_names[0]}/")
 
-    step_index = step_names.index(step) + 1
+    # Нельзя перескакивать шаги вперёд (resume только с текущего/пройденных)
+    requested_index = step_names.index(step) + 1
+    max_allowed = max(s.setup_step, 1)
+    if requested_index > max_allowed:
+        return redirect(f"/setup/{step_names[max_allowed - 1]}/")
+
+    step_index = requested_index
     ctx = {
         "steps": SETUP_STEPS,
         "current_step": step,
@@ -166,13 +250,23 @@ def setup_wizard(request: HttpRequest, step: str | None = None) -> HttpResponse:
             },
         )
         if request.method == "POST" and form.is_valid():
-            if not form.cleaned_data.get("skip"):
-                s.db_host = form.cleaned_data.get("db_host") or ""
-                s.db_port = form.cleaned_data.get("db_port") or 5432
-                s.db_name = form.cleaned_data.get("db_name") or ""
-                s.db_user = form.cleaned_data.get("db_user") or ""
-                s.db_sslmode = form.cleaned_data.get("db_sslmode") or "prefer"
-                s.db_configured = bool(s.db_host)
+            action = form.cleaned_data.get("action") or "save"
+            if form.cleaned_data.get("skip") or action == "skip":
+                s.setup_step = max(s.setup_step, 4)
+                s.save()
+                return redirect("/setup/sources/")
+            if action == "test":
+                ok, msg = _test_db_connection(form.cleaned_data)
+                ctx["form"] = form
+                ctx["db_test_message"] = msg
+                ctx["db_test_ok"] = ok
+                return render(request, "setup/database.html", ctx)
+            s.db_host = form.cleaned_data.get("db_host") or ""
+            s.db_port = form.cleaned_data.get("db_port") or 5432
+            s.db_name = form.cleaned_data.get("db_name") or ""
+            s.db_user = form.cleaned_data.get("db_user") or ""
+            s.db_sslmode = form.cleaned_data.get("db_sslmode") or "prefer"
+            s.db_configured = bool(s.db_host)
             s.setup_step = max(s.setup_step, 4)
             s.save()
             return redirect("/setup/sources/")
@@ -231,22 +325,22 @@ def setup_wizard(request: HttpRequest, step: str | None = None) -> HttpResponse:
                 "mail_smtp_user": s.mail_smtp_user,
                 "mail_use_tls": s.mail_use_tls,
                 "mail_from_address": s.mail_from_address,
+                "mail_exchange_server": s.mail_exchange_server,
+                "mail_office365_tenant": s.mail_office365_tenant,
             },
         )
         if request.method == "POST" and form.is_valid():
+            if request.POST.get("do_test") == "1":
+                # Save fields first then send test
+                _apply_mail_form(s, form.cleaned_data)
+                s.save()
+                ok, msg = _send_test_mail(form.cleaned_data)
+                ctx["form"] = form
+                ctx["mail_test_message"] = msg
+                ctx["mail_test_ok"] = ok
+                return render(request, "setup/mail.html", ctx)
             if not form.cleaned_data.get("skip"):
-                for field in (
-                    "mail_enabled",
-                    "mail_provider",
-                    "mail_smtp_host",
-                    "mail_smtp_port",
-                    "mail_smtp_user",
-                    "mail_smtp_password",
-                    "mail_use_tls",
-                    "mail_from_address",
-                ):
-                    if form.cleaned_data.get(field) is not None:
-                        setattr(s, field, form.cleaned_data[field])
+                _apply_mail_form(s, form.cleaned_data)
             s.setup_step = max(s.setup_step, 7)
             s.save()
             return redirect("/setup/finish/")
@@ -255,6 +349,11 @@ def setup_wizard(request: HttpRequest, step: str | None = None) -> HttpResponse:
 
     if step == "finish":
         if request.method == "POST":
+            if not User.objects.filter(role=Role.PLATFORM_ADMIN).exists() and not User.objects.filter(
+                is_superuser=True
+            ).exists():
+                messages.error(request, "Сначала создайте администратора на шаге Admin.")
+                return redirect("/setup/admin/")
             try:
                 call_command("migrate", interactive=False, verbosity=0)
             except Exception:  # noqa: BLE001

@@ -33,10 +33,13 @@ def ticket_detail(request: HttpRequest, number: int) -> HttpResponse:
     )
     events = ticket.events.select_related("actor").all()
     actions = available_actions(ticket, request.user)
+    from django.contrib.auth import get_user_model
+
+    assignees = get_user_model().objects.filter(is_active=True).order_by("username")
     return render(
         request,
         "tickets/detail.html",
-        {"ticket": ticket, "events": events, "actions": actions},
+        {"ticket": ticket, "events": events, "actions": actions, "assignees": assignees},
     )
 
 
@@ -69,20 +72,32 @@ def ticket_create(request: HttpRequest) -> HttpResponse:
 
 @require_POST
 def ticket_action(request: HttpRequest, number: int) -> HttpResponse:
+    from django.contrib.auth import get_user_model
+
     ticket = get_object_or_404(Ticket, number=number)
     action = request.POST.get("action", "")
     comment = request.POST.get("comment", "")
+    assignee = None
+    assignee_id = request.POST.get("assignee_id")
+    if assignee_id:
+        assignee = get_user_model().objects.filter(pk=assignee_id, is_active=True).first()
     try:
-        ticket = apply_action(ticket, request.user, action, comment=comment)
+        ticket = apply_action(ticket, request.user, action, comment=comment, assignee=assignee)
         messages.success(request, f"Действие «{action}» выполнено.")
     except (PermissionDenied, ValidationError) as exc:
         messages.error(request, str(exc))
     events = ticket.events.select_related("actor").all()
     actions = available_actions(ticket, request.user)
+    assignees = get_user_model().objects.filter(is_active=True).order_by("username")
     if request.headers.get("HX-Request"):
         return render(
             request,
             "tickets/partials/detail_body.html",
-            {"ticket": ticket, "events": events, "actions": actions},
+            {
+                "ticket": ticket,
+                "events": events,
+                "actions": actions,
+                "assignees": assignees,
+            },
         )
     return redirect("ticket_detail", number=ticket.number)

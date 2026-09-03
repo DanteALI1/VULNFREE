@@ -118,20 +118,12 @@ class LocalIdSequence(models.Model):
         for attempt in range(25):
             try:
                 with transaction.atomic():
-                    seq = (
-                        cls.objects.select_for_update()
-                        .filter(prefix=prefix, year=year)
-                        .first()
-                    )
+                    seq = cls.objects.select_for_update().filter(prefix=prefix, year=year).first()
                     if seq is None:
                         try:
-                            seq = cls.objects.create(
-                                prefix=prefix, year=year, last_number=0
-                            )
+                            seq = cls.objects.create(prefix=prefix, year=year, last_number=0)
                         except IntegrityError:
-                            seq = cls.objects.select_for_update().get(
-                                prefix=prefix, year=year
-                            )
+                            seq = cls.objects.select_for_update().get(prefix=prefix, year=year)
                     seq.last_number += 1
                     seq.save(update_fields=["last_number"])
                     return f"{prefix}-{year}-{seq.last_number:04d}"

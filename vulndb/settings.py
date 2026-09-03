@@ -12,13 +12,20 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get("SECRET_KEY", "dev-insecure-secret-key-change-me")
 DEBUG = os.environ.get("DEBUG", "True").lower() in {"1", "true", "yes"}
+SECRET_KEY = os.environ.get("SECRET_KEY", "")
+if not SECRET_KEY:
+    if DEBUG:
+        # Только для локальной разработки; в проде SECRET_KEY обязателен в .env
+        SECRET_KEY = "dev-only-insecure-key-set-SECRET_KEY-in-dotenv"
+    else:
+        raise RuntimeError("SECRET_KEY must be set in environment when DEBUG=False")
 ALLOWED_HOSTS = [
     h.strip()
     for h in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
     if h.strip()
 ]
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
