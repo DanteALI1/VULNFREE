@@ -349,9 +349,9 @@ def setup_wizard(request: HttpRequest, step: str | None = None) -> HttpResponse:
 
     if step == "finish":
         if request.method == "POST":
-            if not User.objects.filter(role=Role.PLATFORM_ADMIN).exists() and not User.objects.filter(
-                is_superuser=True
-            ).exists():
+            has_admin = User.objects.filter(role=Role.PLATFORM_ADMIN).exists()
+            has_super = User.objects.filter(is_superuser=True).exists()
+            if not has_admin and not has_super:
                 messages.error(request, "Сначала создайте администратора на шаге Admin.")
                 return redirect("/setup/admin/")
             try:
