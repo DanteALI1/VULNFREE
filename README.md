@@ -6,6 +6,26 @@
 
 Лицензионный gate **не используется** (вариант A) — после `/setup/` система полностью рабочая.
 
+## Полная установка на сервер (рекомендуется)
+
+**РЕД ОС 8 / 7.3+:**
+
+```bash
+sudo bash scripts/install-redos.sh
+```
+
+**Ubuntu/Debian:**
+
+```bash
+sudo bash scripts/install.sh
+```
+
+`scripts/install.sh` на РЕД ОС сам вызывает `install-redos.sh`.
+
+Необязательные переменные: `APP_DIR=/opt/vulndb` `APP_USER=vulndb` `DOMAIN=vulndb.example.ru` `ORG_NAME="Моя организация"`.
+
+После установки скрипт выведет пароли и сохранит их в `/root/vulndb-credentials.txt` (права 600). Дальше — войти как `admin` и запустить синхронизацию NVD/БДУ в Настройках.
+
 ## Быстрый старт (Docker)
 
 ```bash
@@ -113,7 +133,8 @@ pytest
 
 ## Прод без Docker
 
-См. `scripts/install-prod.sh` (systemd units + nginx, лимит upload 5m для логотипа).
+- РЕД ОС: `scripts/install-redos.sh` (dnf/yum, initdb, nginx `/etc/nginx/conf.d`, SELinux, firewalld)
+- Ubuntu/Debian: `scripts/install.sh` (apt, sites-available)
 
 ## Структура
 
