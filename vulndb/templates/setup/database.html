@@ -1,0 +1,12 @@
+{% extends "setup/base_setup.html" %}
+{% block setup_content %}
+<div class="card-free">
+  <h2>База данных</h2>
+  <p>Пароль БД хранится только в <code>.env</code> (<code>DATABASE_URL</code> / <code>POSTGRES_PASSWORD</code>), не в модели.</p>
+  <form method="post" class="form-grid">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="btn" type="submit">Далее</button>
+  </form>
+</div>
+{% endblock %}

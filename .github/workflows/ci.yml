@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, "cursor/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Ruff check
+        run: ruff check .
+      - name: Ruff format
+        run: ruff format --check .
+      - name: Django check
+        run: python manage.py check
+      - name: Migrate check
+        run: python manage.py migrate --check
+      - name: Pytest
+        run: pytest -q
+        env:
+          SECRET_KEY: test-secret
+          DEBUG: "True"
+          DATABASE_URL: ""

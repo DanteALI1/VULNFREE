@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ branding.product_name|default:"VULNDB" }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <style>:root { --accent: {{ branding.accent_color|default:"#0a7ab8" }}; --sidebar: {{ branding.sidebar_color|default:"#1b2430" }}; }</style>
+  <script src="/static/vendor/htmx.min.js" defer></script>
+  <script defer src="/static/vendor/alpine.min.js"></script>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+{% block body %}
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      {% if branding.logo %}<img src="{{ branding.logo.url }}" alt="logo">{% endif %}
+      <div class="brand-name">{{ branding.product_name|default:"VULNDB" }}</div>
+    </div>
+    <nav class="nav">
+      <a href="/" class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">Дашборд</a>
+      <a href="/vulns/" class="{% if '/vulns/' in request.path %}active{% endif %}">Уязвимости</a>
+      <a href="/tickets/" class="{% if '/tickets/' in request.path %}active{% endif %}">Заявки</a>
+      <a href="/settings/" class="{% if '/settings/' in request.path %}active{% endif %}">Настройки</a>
+    </nav>
+    <div style="margin-top:auto;font-size:0.8rem;opacity:0.8;">
+      {% if user.is_authenticated %}
+        {{ user.get_username }} · <a href="/accounts/logout/" style="color:#9ec9e8;">Выход</a>
+      {% endif %}
+    </div>
+  </aside>
+  <main class="main">
+    {% if messages %}
+    <ul class="messages">
+      {% for message in messages %}
+      <li class="{{ message.tags }}">{{ message }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+{% endblock %}
+</body>
+</html>

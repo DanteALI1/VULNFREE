@@ -1,0 +1,9 @@
+<div class="metric-grid" id="metrics"
+     hx-get="/settings/metrics/" hx-trigger="every 8s" hx-swap="outerHTML">
+  <div class="kpi"><div class="label">CPU</div><div class="value">{{ cpu_percent }}%</div></div>
+  <div class="kpi"><div class="label">RAM</div><div class="value">{{ ram_percent }}%</div></div>
+  <div class="kpi"><div class="label">SWAP</div><div class="value">{{ swap_percent }}%</div></div>
+  {% for d in disks %}
+  <div class="kpi"><div class="label">Диск {{ d.mount }}</div><div class="value">{{ d.percent }}%</div></div>
+  {% endfor %}
+</div>

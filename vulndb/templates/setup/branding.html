@@ -1,0 +1,12 @@
+{% extends "setup/base_setup.html" %}
+{% block setup_content %}
+<div class="card-free">
+  <h2>Брендинг</h2>
+  <form method="post" enctype="multipart/form-data" class="form-grid">
+    {% csrf_token %}
+    {{ form.as_p }}
+    {% if settings.logo %}<img src="{{ settings.logo.url }}" alt="logo" style="max-height:64px">{% endif %}
+    <button class="btn" type="submit">Далее</button>
+  </form>
+</div>
+{% endblock %}

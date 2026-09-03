@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Уязвимости{% endblock %}
+{% block content %}
+<div class="topbar">
+  <h1>Уязвимости</h1>
+  <a class="btn" href="/vulns/local/new/">+ Локальная</a>
+</div>
+<form class="filters" method="get" hx-get="/vulns/" hx-target="#vuln-table" hx-push-url="true">
+  <label>Поиск <input type="text" name="q" value="{{ filters.q }}"></label>
+  <label>Тип
+    <select name="type">
+      <option value="">Все</option>
+      {% for val,label in types %}<option value="{{ val }}" {% if filters.type == val %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Severity
+    <select name="severity">
+      <option value="">Все</option>
+      {% for val,label in severities %}<option value="{{ val }}" {% if filters.severity == val %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>KEV
+    <select name="kev">
+      <option value="">Любой</option>
+      <option value="1" {% if filters.kev == "1" %}selected{% endif %}>Да</option>
+      <option value="0" {% if filters.kev == "0" %}selected{% endif %}>Нет</option>
+    </select>
+  </label>
+  <label>Дней <input type="number" name="days" value="{{ filters.days }}" min="1" style="width:5rem"></label>
+  <label>CVSS min <input type="number" step="0.1" name="cvss_min" value="{{ filters.cvss_min }}" style="width:5rem"></label>
+  <label>CVSS max <input type="number" step="0.1" name="cvss_max" value="{{ filters.cvss_max }}" style="width:5rem"></label>
+  <button class="btn" type="submit">Фильтр</button>
+</form>
+<div id="vuln-table">{% include "vulns/partials/list_table.html" %}</div>
+{% endblock %}

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}{{ vuln.vuln_id }}{% endblock %}
+{% block content %}
+<div class="topbar">
+  <h1>{{ vuln.vuln_id }}</h1>
+  <div>
+    {% for b in vuln.badges %}<span class="badge badge-{{ b|lower }}">{{ b }}</span> {% endfor %}
+    <span class="badge badge-sev-{{ vuln.severity }}">{{ vuln.severity }}</span>
+    <a class="btn btn-sm" href="/tickets/new/?vuln={{ vuln.vuln_id }}">Создать заявку</a>
+  </div>
+</div>
+<p>{{ vuln.title }}</p>
+<p><strong>Vendor:</strong> {{ vuln.vendor|default:"—" }} ·
+   <strong>Product:</strong> {{ vuln.product_name|default:"—" }} ·
+   <strong>Version:</strong> {{ vuln.product_version|default:"—" }}</p>
+
+<div class="tabs">
+  <a href="?tab=nvd" class="{% if tab == 'nvd' %}active{% endif %}">NVD</a>
+  <a href="?tab=bdu" class="{% if tab == 'bdu' %}active{% endif %}">БДУ</a>
+  <a href="?tab=cvss" class="{% if tab == 'cvss' %}active{% endif %}">CVSS</a>
+  <a href="?tab=kev" class="{% if tab == 'kev' %}active{% endif %}">KEV</a>
+</div>
+
+{% if tab == "nvd" %}
+<div class="card-free">
+  <h2>Описание NVD</h2>
+  <p>{{ vuln.description_nvd|linebreaksbr|default:"—" }}</p>
+  <p><strong>CWE:</strong> {{ vuln.cwe }}</p>
+  <p><strong>CPE:</strong> {{ vuln.cpe|truncatechars:300 }}</p>
+  <p><strong>References:</strong></p>
+  <ul>{% for r in vuln.references %}<li><a href="{{ r }}" rel="noopener">{{ r }}</a></li>{% empty %}<li>—</li>{% endfor %}</ul>
+  <details><summary>raw_nvd</summary><pre>{{ vuln.raw_nvd }}</pre></details>
+</div>
+{% elif tab == "bdu" %}
+<div class="card-free">
+  <h2>БДУ {% if vuln.bdu_id %}({{ vuln.bdu_id }}){% endif %}</h2>
+  <p>{{ vuln.description_bdu|linebreaksbr|default:"—" }}</p>
+  <p><strong>Устранение:</strong> {{ vuln.remediation|default:"—" }}</p>
+  <details><summary>bdu_raw</summary><pre>{{ vuln.bdu_raw }}</pre></details>
+</div>
+{% elif tab == "cvss" %}
+<div class="card-free">
+  <h2>CVSS (score {{ vuln.cvss_score|default:"—" }})</h2>
+  <h3>v3.1</h3><pre>{{ vuln.cvss_v31 }}</pre>
+  <h3>v3.0</h3><pre>{{ vuln.cvss_v30 }}</pre>
+  <h3>v2</h3><pre>{{ vuln.cvss_v2 }}</pre>
+  <h3>v4.0</h3><pre>{{ vuln.cvss_v40 }}</pre>
+</div>
+{% else %}
+<div class="card-free">
+  <h2>CISA KEV</h2>
+  {% if vuln.in_kev %}
+    <p class="ok">В каталоге Known Exploited Vulnerabilities</p>
+    <pre>{{ vuln.kev_data }}</pre>
+  {% else %}
+    <p>Не в KEV</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card-free">
+  <h2>Связанные заявки</h2>
+  <ul>
+  {% for t in tickets %}
+    <li><a href="/tickets/{{ t.number }}/">{{ t.display_number }}</a> — {{ t.get_status_display }}</li>
+  {% empty %}
+    <li>Нет заявок</li>
+  {% endfor %}
+  </ul>
+</div>
+{% endblock %}

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Дашборд — {{ branding.product_name }}{% endblock %}
+{% block content %}
+<div class="topbar"><h1>Дашборд</h1></div>
+<div class="kpi-row">
+  <div class="kpi"><div class="label">CRITICAL</div><div class="value">{{ count_critical }}</div></div>
+  <div class="kpi"><div class="label">HIGH</div><div class="value">{{ count_high }}</div></div>
+  <div class="kpi"><div class="label">KEV</div><div class="value">{{ count_kev }}</div></div>
+  <div class="kpi"><div class="label">Локальные</div><div class="value">{{ count_local }}</div></div>
+</div>
+
+<div class="card-free">
+  <h2>Требуют внимания</h2>
+  <table>
+    <thead><tr><th>ID</th><th>Заголовок</th><th>Severity</th><th>Бейджи</th></tr></thead>
+    <tbody>
+    {% for v in attention %}
+      <tr>
+        <td><a href="/vulns/{{ v.vuln_id }}/">{{ v.vuln_id }}</a></td>
+        <td>{{ v.title|truncatechars:80 }}</td>
+        <td><span class="badge badge-sev-{{ v.severity }}">{{ v.severity }}</span></td>
+        <td>{% for b in v.badges %}<span class="badge badge-{{ b|lower }}">{{ b }}</span> {% endfor %}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="4">Нет записей</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card-free">
+  <h2>Открытые заявки</h2>
+  <table>
+    <thead><tr><th>Номер</th><th>Уязвимость</th><th>Статус</th><th>Исполнитель</th></tr></thead>
+    <tbody>
+    {% for t in open_tickets %}
+      <tr>
+        <td><a href="/tickets/{{ t.number }}/">{{ t.display_number }}</a></td>
+        <td>{{ t.vulnerability.vuln_id }}</td>
+        <td>{{ t.get_status_display }}</td>
+        <td>{{ t.assignee|default:"—" }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="4">Нет открытых заявок</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card-free">
+  <h2>Синхронизация</h2>
+  {% include "partials/sync_status_list.html" with states=sync_states.values %}
+</div>
+{% endblock %}

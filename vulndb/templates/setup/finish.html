@@ -1,0 +1,11 @@
+{% extends "setup/base_setup.html" %}
+{% block setup_content %}
+<div class="card-free">
+  <h2>Завершение</h2>
+  <p>Будет установлен флаг <code>setup_completed</code>, запущены миграции и задачи синхронизации (NVD→KEV, БДУ).</p>
+  <form method="post">
+    {% csrf_token %}
+    <button class="btn" type="submit">Завершить настройку</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,9 @@
+<div class="ok">{{ message }}</div>
+{% if state %}
+<div>
+  {{ state.get_source_display }}: {{ state.get_status_display }}
+  {% if state.items_total %}
+  <div class="progress"><span style="width:{% widthratio state.items_synced state.items_total 100 %}%"></span></div>
+  {% endif %}
+</div>
+{% endif %}

@@ -1,0 +1,17 @@
+{% extends "setup/base_setup.html" %}
+{% block setup_content %}
+<div class="card-free">
+  <h2>Организация</h2>
+  <form method="post" class="form-grid">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <div>
+      <label>Проверка префикса (HTMX)</label>
+      <input type="text" name="local_id_prefix" value="{{ form.local_id_prefix.value|default:settings.local_id_prefix }}"
+             hx-post="/setup/validate-prefix/" hx-trigger="keyup changed delay:300ms" hx-target="#prefix-check" hx-include="this">
+      <div id="prefix-check"></div>
+    </div>
+    <button class="btn" type="submit">Далее</button>
+  </form>
+</div>
+{% endblock %}

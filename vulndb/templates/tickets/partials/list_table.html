@@ -1,0 +1,23 @@
+<table>
+  <thead><tr><th>Номер</th><th>Уязвимость</th><th>Приоритет</th><th>Статус</th><th>Исполнитель</th></tr></thead>
+  <tbody>
+  {% for t in page %}
+    <tr>
+      <td><a href="/tickets/{{ t.number }}/">{{ t.display_number }}</a></td>
+      <td>{{ t.vulnerability.vuln_id }}</td>
+      <td>{{ t.get_priority_display }}</td>
+      <td>{{ t.get_status_display }}</td>
+      <td>{{ t.assignee|default:"—" }}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="5">Нет заявок</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if page.has_other_pages %}
+<div style="margin-top:0.75rem;">
+  {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">←</a>{% endif %}
+  стр. {{ page.number }} / {{ page.paginator.num_pages }}
+  {% if page.has_next %}<a href="?page={{ page.next_page_number }}">→</a>{% endif %}
+</div>
+{% endif %}
