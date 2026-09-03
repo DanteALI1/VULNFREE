@@ -1,28 +1,31 @@
 #!/usr/bin/env bash
 # =============================================================================
-# VULNDB — полный установщик (Ubuntu/Debian)
+# VULNDB — полный установщик для РЕД ОС 8 / РЕД ОС 7.3+
+# (семейство RHEL: dnf/yum, systemd, nginx, firewalld, SELinux)
 #
 # Что делает:
-#   • ставит пакеты (Python 3.12, PostgreSQL 16, Redis, nginx, build-deps)
+#   • ставит пакеты (Python 3.10+, PostgreSQL, Redis, nginx, gcc, libpq)
 #   • создаёт системного пользователя и каталоги
-#   • создаёт роль и БД PostgreSQL
+#   • инициализирует PostgreSQL, создаёт роль и БД
+#   • настраивает pg_hba (пароль с localhost), SELinux, firewalld
 #   • раскладывает приложение, пишет .env, миграции, static
 #   • поднимает systemd (web / worker / beat) + nginx
-#   • создаёт учётные записи Django (admin / analyst / assignee / verifier)
-#   • печатает все креды и следующие шаги
+#   • создаёт учётные записи Django и печатает все креды
 #
-# Запуск (от root, из корня репозитория или по пути к этому файлу):
-#   sudo bash scripts/install.sh
+# Запуск (от root):
+#   sudo bash scripts/install-redos.sh
 #
-# Переменные окружения (необязательно):
-#   APP_DIR=/opt/vulndb   APP_USER=vulndb   DOMAIN=vulndb.local
-#   SKIP_PACKAGES=1       SKIP_NGINX=1      ORG_NAME="Моя организация"
+# Переменные: APP_DIR APP_USER DOMAIN ORG_NAME SKIP_PACKAGES SKIP_NGINX SKIP_FIREWALL
 # =============================================================================
 set -euo pipefail
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Запустите от root: sudo bash $0" >&2
   exit 1
+fi
+
+if [[ ! -f /etc/redos-release ]] && ! grep -qiE 'redos|red os|red-soft' /etc/os-release 2>/dev/null; then
+  echo "Внимание: /etc/os-release не похож на РЕД ОС. Продолжаю как RHEL-семейство." >&2
 fi
 
 APP_DIR="${APP_DIR:-/opt/vulndb}"
@@ -35,16 +38,22 @@ LOG_DIR="${LOG_DIR:-/var/log/vulndb}"
 CRED_FILE="${CRED_FILE:-/root/vulndb-credentials.txt}"
 SKIP_PACKAGES="${SKIP_PACKAGES:-0}"
 SKIP_NGINX="${SKIP_NGINX:-0}"
+SKIP_FIREWALL="${SKIP_FIREWALL:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# РЕД ОС / RHEL-семейство — отдельный установщик
-if [[ -f /etc/redos-release ]] || grep -qiE 'redos|red os|red-soft' /etc/os-release 2>/dev/null; then
-  exec "${SCRIPT_DIR}/install-redos.sh" "$@"
-fi
-
 umask 077
+
+if command -v dnf >/dev/null 2>&1; then
+  PKG="dnf"
+  PKG_INSTALL=(dnf install -y)
+  PKG_UPDATE=(dnf makecache)
+else
+  PKG="yum"
+  PKG_INSTALL=(yum install -y)
+  PKG_UPDATE=(yum makecache)
+fi
 
 rand_alnum() {
   local n="${1:-24}"
@@ -62,7 +71,6 @@ PY
 }
 
 rand_password() {
-  # Сложный пароль, проходит Django validators (длина, не словарный)
   python3 - <<'PY'
 import secrets, string
 alphabet = string.ascii_letters + string.digits + "!@#%^*_+-="
@@ -76,29 +84,85 @@ PY
 }
 
 echo "=============================================="
-echo " VULNDB — полная установка"
+echo " VULNDB — установка на РЕД ОС"
 echo " Каталог:  ${APP_DIR}"
 echo " Пользователь ОС: ${APP_USER}"
 echo " Домен:    ${DOMAIN}"
+echo " Пакетный менеджер: ${PKG}"
 echo "=============================================="
 
 # --- пакеты -----------------------------------------------------------------
 if [[ "${SKIP_PACKAGES}" != "1" ]]; then
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq
-  apt-get install -y -qq \
-    python3 python3-venv python3-pip python3-dev \
-    build-essential libpq-dev libffi-dev libssl-dev \
-    postgresql postgresql-contrib \
-    redis-server \
-    nginx \
-    rsync curl sudo
-  # python3.12-venv на Ubuntu 24.04, если доступен
-  apt-get install -y -qq python3.12-venv 2>/dev/null || true
+  "${PKG_UPDATE[@]}" -q || true
+  "${PKG_INSTALL[@]}" \
+    python3 python3-pip python3-devel \
+    gcc gcc-c++ make \
+    libffi-devel openssl-devel zlib-devel libjpeg-turbo-devel \
+    rsync curl sudo tar \
+    nginx redis \
+    postgresql postgresql-server postgresql-contrib \
+    policycoreutils-python-utils || true
+
+  # libpq / заголовки для psycopg (имя пакета зависит от релиза)
+  "${PKG_INSTALL[@]}" libpq-devel 2>/dev/null \
+    || "${PKG_INSTALL[@]}" postgresql-devel 2>/dev/null \
+    || "${PKG_INSTALL[@]}" libpqxx-devel 2>/dev/null \
+    || true
+
+  # Python 3.11/3.12, если есть в репозитории (Django 5.1 требует ≥ 3.10)
+  "${PKG_INSTALL[@]}" python3.12 python3.12-devel python3.12-pip 2>/dev/null || true
+  "${PKG_INSTALL[@]}" python3.11 python3.11-devel python3.11-pip 2>/dev/null || true
 fi
 
-systemctl enable --now postgresql redis-server 2>/dev/null || true
-systemctl start postgresql redis-server 2>/dev/null || true
+PYTHON_BIN="$(command -v python3.12 || command -v python3.11 || command -v python3.10 || command -v python3)"
+PY_VER="$("${PYTHON_BIN}" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+PY_MAJ="${PY_VER%%.*}"
+PY_MIN="${PY_VER#*.}"
+if [[ "${PY_MAJ}" -lt 3 || "${PY_MIN}" -lt 10 ]]; then
+  echo "Нужен Python ≥ 3.10 (Django 5.1). Найден ${PYTHON_BIN} (${PY_VER})." >&2
+  echo "Установите python3.11 или python3.12 из репозитория РЕД ОС 8 и повторите." >&2
+  exit 1
+fi
+echo "Интерпретатор: ${PYTHON_BIN} (${PY_VER})"
+
+# --- Redis ------------------------------------------------------------------
+systemctl enable --now redis 2>/dev/null || systemctl enable --now redis-server 2>/dev/null || true
+REDIS_UNIT="redis"
+systemctl is-active --quiet redis && REDIS_UNIT="redis" || true
+systemctl is-active --quiet redis-server && REDIS_UNIT="redis-server" || true
+
+# --- PostgreSQL initdb + сервис ---------------------------------------------
+PG_UNIT="postgresql"
+if systemctl list-unit-files | grep -q '^postgresql-16.service'; then
+  PG_UNIT="postgresql-16"
+  if [[ ! -d /var/lib/pgsql/16/data/base ]]; then
+    /usr/pgsql-16/bin/postgresql-16-setup initdb || true
+  fi
+elif [[ ! -f /var/lib/pgsql/data/PG_VERSION ]]; then
+  if command -v postgresql-setup >/dev/null 2>&1; then
+    postgresql-setup --initdb 2>/dev/null || postgresql-setup initdb 2>/dev/null || true
+  fi
+fi
+systemctl enable --now "${PG_UNIT}"
+
+PG_HBA=""
+for cand in \
+  /var/lib/pgsql/data/pg_hba.conf \
+  /var/lib/pgsql/16/data/pg_hba.conf \
+  /var/lib/pgsql/15/data/pg_hba.conf; do
+  if [[ -f "${cand}" ]]; then
+    PG_HBA="${cand}"
+    break
+  fi
+done
+if [[ -n "${PG_HBA}" ]]; then
+  if grep -qE '127\.0\.0\.1/32[[:space:]]+(ident|peer|trust)' "${PG_HBA}"; then
+    sed -i -E 's/(127\.0\.0\.1\/32[[:space:]]+)(ident|peer|trust)/\1scram-sha-256/' "${PG_HBA}" || true
+    sed -i -E 's/(::1\/128[[:space:]]+)(ident|peer|trust)/\1scram-sha-256/' "${PG_HBA}" || true
+    # если scram не поддерживается старым PG — md5
+    systemctl reload "${PG_UNIT}" 2>/dev/null || systemctl restart "${PG_UNIT}"
+  fi
+fi
 
 # --- системный пользователь и каталоги --------------------------------------
 if ! id -u "${APP_USER}" >/dev/null 2>&1; then
@@ -115,7 +179,6 @@ mkdir -p \
   "${LOG_DIR}" \
   /etc/vulndb
 
-# --- раскладка кода ---------------------------------------------------------
 rsync -a --delete \
   --exclude '.git' \
   --exclude '.venv' \
@@ -166,7 +229,7 @@ else
 fi
 
 cat > "${APP_DIR}/.env" <<EOF
-# Сгенерировано scripts/install.sh — не коммитить
+# Сгенерировано scripts/install-redos.sh — не коммитить
 SECRET_KEY=${SECRET_KEY}
 DEBUG=False
 ALLOWED_HOSTS=${DOMAIN},localhost,127.0.0.1
@@ -188,11 +251,11 @@ chmod 640 "${APP_DIR}/.env"
 
 # --- venv + приложение ------------------------------------------------------
 if [[ ! -d "${APP_DIR}/.venv" ]]; then
-  sudo -u "${APP_USER}" python3 -m venv "${APP_DIR}/.venv"
+  sudo -u "${APP_USER}" "${PYTHON_BIN}" -m venv "${APP_DIR}/.venv" \
+    || sudo -u "${APP_USER}" virtualenv -p "${PYTHON_BIN}" "${APP_DIR}/.venv"
 fi
 chown -R "${APP_USER}:${APP_GROUP}" "${APP_DIR}" "${LOG_DIR}"
 chmod 640 "${APP_DIR}/.env"
-# root должен читать EnvironmentFile
 chgrp "${APP_GROUP}" "${APP_DIR}/.env"
 
 sudo -u "${APP_USER}" bash -lc "
@@ -205,7 +268,6 @@ sudo -u "${APP_USER}" bash -lc "
   python manage.py collectstatic --noinput
 "
 
-# --- Django-пользователи и завершение setup --------------------------------
 ADMIN_USER="admin"
 ANALYST_USER="analyst"
 ASSIGNEE_USER="assignee"
@@ -223,15 +285,6 @@ else
   ASSIGNEE_PASS="$(rand_password)"
 fi
 
-export DJANGO_BOOTSTRAP_ADMIN_USER="${ADMIN_USER}"
-export DJANGO_BOOTSTRAP_ADMIN_PASS="${ADMIN_PASS}"
-export DJANGO_BOOTSTRAP_ANALYST_PASS="${ANALYST_PASS}"
-export DJANGO_BOOTSTRAP_ASSIGNEE_PASS="${ASSIGNEE_PASS}"
-export DJANGO_BOOTSTRAP_VERIFIER_PASS="${VERIFIER_PASS}"
-export DJANGO_BOOTSTRAP_ORG="${ORG_NAME}"
-export DJANGO_BOOTSTRAP_PREFIX="${LOCAL_PREFIX}"
-
-# передаём секреты только через env файла, не в argv
 BOOT_ENV="$(mktemp)"
 chmod 600 "${BOOT_ENV}"
 cat > "${BOOT_ENV}" <<EOF
@@ -263,8 +316,8 @@ rm -f "${BOOT_ENV}"
 cat > /etc/systemd/system/vulndb.service <<EOF
 [Unit]
 Description=VULNDB gunicorn
-After=network.target postgresql.service redis-server.service
-Wants=postgresql.service redis-server.service
+After=network.target ${PG_UNIT}.service ${REDIS_UNIT}.service
+Wants=${PG_UNIT}.service ${REDIS_UNIT}.service
 
 [Service]
 User=${APP_USER}
@@ -282,7 +335,7 @@ EOF
 cat > /etc/systemd/system/vulndb-worker.service <<EOF
 [Unit]
 Description=VULNDB Celery worker
-After=network.target redis-server.service postgresql.service
+After=network.target ${REDIS_UNIT}.service ${PG_UNIT}.service
 
 [Service]
 User=${APP_USER}
@@ -300,7 +353,7 @@ EOF
 cat > /etc/systemd/system/vulndb-beat.service <<EOF
 [Unit]
 Description=VULNDB Celery beat
-After=network.target redis-server.service postgresql.service
+After=network.target ${REDIS_UNIT}.service ${PG_UNIT}.service
 
 [Service]
 User=${APP_USER}
@@ -318,9 +371,10 @@ EOF
 systemctl daemon-reload
 systemctl enable --now vulndb vulndb-worker vulndb-beat
 
-# --- nginx ------------------------------------------------------------------
+# --- nginx (РЕД ОС: /etc/nginx/conf.d, без sites-available) -----------------
 if [[ "${SKIP_NGINX}" != "1" ]]; then
-  cat > /etc/nginx/sites-available/vulndb <<EOF
+  mkdir -p /etc/nginx/conf.d
+  cat > /etc/nginx/conf.d/vulndb.conf <<EOF
 server {
     listen 80;
     server_name ${DOMAIN};
@@ -342,28 +396,42 @@ server {
     }
 }
 EOF
-  ln -sfn /etc/nginx/sites-available/vulndb /etc/nginx/sites-enabled/vulndb
-  rm -f /etc/nginx/sites-enabled/default
   nginx -t
   systemctl enable --now nginx
   systemctl reload nginx
 fi
 
-# --- файл кредов ------------------------------------------------------------
+# --- SELinux ----------------------------------------------------------------
+if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce)" != "Disabled" ]]; then
+  setsebool -P httpd_can_network_connect 1 2>/dev/null || true
+  if command -v semanage >/dev/null 2>&1; then
+    semanage fcontext -a -t httpd_sys_content_t "${APP_DIR}/staticfiles(/.*)?" 2>/dev/null || true
+    semanage fcontext -a -t httpd_sys_rw_content_t "${APP_DIR}/media(/.*)?" 2>/dev/null || true
+  fi
+  restorecon -Rv "${APP_DIR}/staticfiles" "${APP_DIR}/media" >/dev/null 2>&1 || true
+fi
+
+# --- firewalld --------------------------------------------------------------
+if [[ "${SKIP_FIREWALL}" != "1" ]] && command -v firewall-cmd >/dev/null 2>&1; then
+  if systemctl is-active --quiet firewalld; then
+    firewall-cmd --permanent --add-service=http || true
+    firewall-cmd --reload || true
+  fi
+fi
+
+# --- креды ------------------------------------------------------------------
 mkdir -p "$(dirname "${CRED_FILE}")"
 cat > "${CRED_FILE}" <<EOF
-# VULNDB credentials — $(date -Is)
-# Права 600. Храните в секрете. После смены паролей удалите этот файл.
+# VULNDB credentials (РЕД ОС) — $(date -Is)
+# Права 600. Храните в секрете.
 
 URL=http://${DOMAIN}/
 ADMIN_URL=http://${DOMAIN}/admin/
 
-# --- ОС ---
 OS_USER=${APP_USER}
 APP_DIR=${APP_DIR}
 LOG_DIR=${LOG_DIR}
 
-# --- PostgreSQL ---
 DB_HOST=127.0.0.1
 DB_PORT=5432
 DB_NAME=${DB_NAME}
@@ -371,7 +439,6 @@ DB_USER=${DB_USER}
 POSTGRES_PASSWORD=${DB_PASS}
 DATABASE_URL=postgres://${DB_USER}:${DB_PASS}@127.0.0.1:5432/${DB_NAME}
 
-# --- Django ---
 SECRET_KEY=${SECRET_KEY}
 
 ADMIN_USER=${ADMIN_USER}
@@ -391,11 +458,7 @@ VERIFIER_PASSWORD=${VERIFIER_PASS}
 VERIFIER_ROLE=verifier
 EOF
 chmod 600 "${CRED_FILE}"
-cp -a "${CRED_FILE}" "${APP_DIR}/CREDENTIALS.txt"
-chown root:root "${APP_DIR}/CREDENTIALS.txt"
-chmod 600 "${APP_DIR}/CREDENTIALS.txt"
-
-# копия для пользователя приложения (чтобы прочитать sudo -u vulndb)
+install -m 600 -o root -g root "${CRED_FILE}" "${APP_DIR}/CREDENTIALS.txt"
 install -m 600 -o root -g root "${CRED_FILE}" /etc/vulndb/credentials.txt
 
 sleep 1
@@ -405,7 +468,7 @@ READY="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/readyz || 
 cat <<EOF
 
 ================================================================
- VULNDB установлен
+ VULNDB установлен на РЕД ОС
 ================================================================
 
  URL:              http://${DOMAIN}/
@@ -413,10 +476,10 @@ cat <<EOF
  Django Admin:     http://${DOMAIN}/admin/
  healthz / readyz: HTTP ${HEALTH} / ${READY}  (ожидается 200 / 200)
 
- Креды сохранены в:
+ Креды:
    ${CRED_FILE}
    /etc/vulndb/credentials.txt
-   ${APP_DIR}/CREDENTIALS.txt   (права 600, только root)
+   ${APP_DIR}/CREDENTIALS.txt
 
 ----------------------------------------------------------------
  СИСТЕМА
@@ -424,6 +487,8 @@ cat <<EOF
  Пользователь ОС:  ${APP_USER}
  Каталог:          ${APP_DIR}
  Логи:             ${LOG_DIR}
+ PostgreSQL unit:  ${PG_UNIT}
+ Redis unit:       ${REDIS_UNIT}
 
 ----------------------------------------------------------------
  БАЗА ДАННЫХ PostgreSQL
@@ -434,40 +499,39 @@ cat <<EOF
  Пароль:           ${DB_PASS}
 
 ----------------------------------------------------------------
- DJANGO (вход в веб)
+ DJANGO
 ----------------------------------------------------------------
  ${ADMIN_USER}     /  ${ADMIN_PASS}     роль platform_admin
  ${ANALYST_USER}   /  ${ANALYST_PASS}   роль analyst
  ${ASSIGNEE_USER}  /  ${ASSIGNEE_PASS}  роль ticket_assignee
  ${VERIFIER_USER}  /  ${VERIFIER_PASS}  роль verifier
 
- SECRET_KEY записан в ${APP_DIR}/.env
-
 ----------------------------------------------------------------
  ДАЛЬНЕЙШИЕ ДЕЙСТВИЯ
 ----------------------------------------------------------------
  1. Откройте http://${DOMAIN}/accounts/login/ и войдите как ${ADMIN_USER}.
-    Мастер /setup/ уже завершён установщиком.
+    Мастер /setup/ уже завершён.
 
  2. Настройки → sources:
       «Синхронизировать NVD»  (KEV подтянется автоматически)
       «Скачать и разобрать БДУ»
 
- 3. Настройки → org / branding / mail / telegram — укажите организацию,
-    логотип, SMTP и токен Telegram (по желанию).
+ 3. Настройки → org / branding / mail / telegram.
 
- 4. Для HTTPS поставьте сертификат (certbot) и в ${APP_DIR}/.env выставьте:
-      CSRF_COOKIE_SECURE=True
-      SESSION_COOKIE_SECURE=True
-    затем:  systemctl restart vulndb vulndb-worker vulndb-beat
+ 4. HTTPS: firewall-cmd --permanent --add-service=https && firewall-cmd --reload
+    В ${APP_DIR}/.env: CSRF_COOKIE_SECURE=True и SESSION_COOKIE_SECURE=True
+    systemctl restart vulndb vulndb-worker vulndb-beat
 
- 5. Смените пароли из этого отчёта и удалите файлы кредов:
+ 5. Если nginx отдаёт 403 на static/media — SELinux:
+      restorecon -Rv ${APP_DIR}/staticfiles ${APP_DIR}/media
+      setsebool -P httpd_can_network_connect 1
+
+ 6. Смените пароли и удалите файлы кредов:
       shred -u ${CRED_FILE} /etc/vulndb/credentials.txt ${APP_DIR}/CREDENTIALS.txt
 
- 6. Полезные команды:
-      systemctl status vulndb vulndb-worker vulndb-beat
+ 7. Команды:
+      systemctl status vulndb vulndb-worker vulndb-beat ${PG_UNIT} ${REDIS_UNIT} nginx
       journalctl -u vulndb -f
-      sudo -u ${APP_USER} ${APP_DIR}/.venv/bin/python ${APP_DIR}/manage.py createsuperuser
 
 ================================================================
 EOF

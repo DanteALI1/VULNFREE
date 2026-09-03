@@ -8,12 +8,19 @@
 
 ## Полная установка на сервер (рекомендуется)
 
-Один скрипт ставит пакеты, создаёт системного пользователя, каталоги,
-роль/БД PostgreSQL, systemd + nginx, учётные записи Django и печатает все креды:
+**РЕД ОС 8 / 7.3+:**
+
+```bash
+sudo bash scripts/install-redos.sh
+```
+
+**Ubuntu/Debian:**
 
 ```bash
 sudo bash scripts/install.sh
 ```
+
+`scripts/install.sh` на РЕД ОС сам вызывает `install-redos.sh`.
 
 Необязательные переменные: `APP_DIR=/opt/vulndb` `APP_USER=vulndb` `DOMAIN=vulndb.example.ru` `ORG_NAME="Моя организация"`.
 
@@ -126,7 +133,8 @@ pytest
 
 ## Прод без Docker
 
-См. `scripts/install-prod.sh` (systemd units + nginx, лимит upload 5m для логотипа).
+- РЕД ОС: `scripts/install-redos.sh` (dnf/yum, initdb, nginx `/etc/nginx/conf.d`, SELinux, firewalld)
+- Ubuntu/Debian: `scripts/install.sh` (apt, sites-available)
 
 ## Структура
 
