@@ -139,6 +139,8 @@ mkdir -p \
   "${APP_DIR}/staticfiles" \
   "${LOG_DIR}" \
   /etc/vulndb
+# home vulndb иначе 700 (umask 077) — nginx не дойдёт до CSS
+chmod 755 "${APP_DIR}" "${APP_DIR}/staticfiles" "${APP_DIR}/media" "${APP_DIR}/media/branding"
 
 # --- раскладка кода ---------------------------------------------------------
 rsync -a --delete \
@@ -243,6 +245,19 @@ sudo -u "${APP_USER}" bash -c "
   python manage.py migrate --noinput
   python manage.py collectstatic --noinput
 "
+
+# umask 077 + useradd --home-dir → /opt/vulndb = 700. nginx не видит CSS.
+fix_web_dir_perms() {
+  chmod 755 "${APP_DIR}"
+  mkdir -p "${APP_DIR}/staticfiles" "${APP_DIR}/media"
+  find "${APP_DIR}/staticfiles" "${APP_DIR}/media" -type d -exec chmod 755 {} +
+  find "${APP_DIR}/staticfiles" "${APP_DIR}/media" -type f -exec chmod 644 {} +
+  if [[ -f "${APP_DIR}/.env" ]]; then
+    chmod 640 "${APP_DIR}/.env"
+    chgrp "${APP_GROUP}" "${APP_DIR}/.env" || true
+  fi
+}
+fix_web_dir_perms
 
 # --- Django-пользователи и завершение setup --------------------------------
 ADMIN_USER="admin"
@@ -368,12 +383,8 @@ server {
 
     client_max_body_size 5m;
 
-    location /static/ {
-        alias ${APP_DIR}/staticfiles/;
-    }
-    location /media/ {
-        alias ${APP_DIR}/media/;
-    }
+    # /static и /media отдаёт gunicorn (WhiteNoise / Django).
+    # Не alias на ${APP_DIR}: home vulndb часто 700.
     location / {
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host \$host;
@@ -442,6 +453,7 @@ install -m 600 -o root -g root "${CRED_FILE}" /etc/vulndb/credentials.txt
 sleep 1
 HEALTH="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/healthz || true)"
 READY="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/readyz || true)"
+CSS="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/static/css/app.css || true)"
 
 cat <<EOF
 
@@ -453,6 +465,7 @@ cat <<EOF
  Вход:             http://${DOMAIN}/accounts/login/
  Django Admin:     http://${DOMAIN}/admin/
  healthz / readyz: HTTP ${HEALTH} / ${READY}  (ожидается 200 / 200)
+ CSS /static/css/app.css: HTTP ${CSS}  (ожидается 200)
 
  Креды сохранены в:
    ${CRED_FILE}
@@ -502,10 +515,15 @@ cat <<EOF
       SESSION_COOKIE_SECURE=True
     затем:  systemctl restart vulndb vulndb-worker vulndb-beat
 
- 5. Смените пароли из этого отчёта и удалите файлы кредов:
+ 5. Если страница без стилей (голый HTML):
+      sudo bash ${APP_DIR}/scripts/fix-static.sh
+      chmod 755 ${APP_DIR} ${APP_DIR}/staticfiles ${APP_DIR}/media
+      chmod -R a+rX ${APP_DIR}/staticfiles ${APP_DIR}/media
+
+ 6. Смените пароли из этого отчёта и удалите файлы кредов:
       shred -u ${CRED_FILE} /etc/vulndb/credentials.txt ${APP_DIR}/CREDENTIALS.txt
 
- 6. Полезные команды:
+ 7. Полезные команды:
       systemctl status vulndb vulndb-worker vulndb-beat
       journalctl -u vulndb -f
       sudo -u ${APP_USER} ${APP_DIR}/.venv/bin/python ${APP_DIR}/manage.py createsuperuser
