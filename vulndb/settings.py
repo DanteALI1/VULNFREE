@@ -27,6 +27,53 @@ ALLOWED_HOSTS = [
     for h in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
     if h.strip()
 ]
+
+
+def _local_ipv4s() -> list[str]:
+    """Адреса локальных интерфейсов (доступ по LAN IP без правки .env)."""
+    found: list[str] = []
+    try:
+        import socket
+
+        hostname = socket.gethostname()
+        found.append(hostname)
+        try:
+            found.append(socket.getfqdn())
+        except OSError:
+            pass
+        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            found.append(info[4][0])
+    except OSError:
+        pass
+    try:
+        import subprocess
+
+        out = subprocess.check_output(["hostname", "-I"], text=True, timeout=2)
+        found.extend(out.split())
+    except (OSError, subprocess.SubprocessError):
+        pass
+    result: list[str] = []
+    for host in found:
+        host = (host or "").strip().rstrip(".")
+        if host and host not in result:
+            result.append(host)
+    return result
+
+
+if os.environ.get("ALLOW_LAN_HOSTS", "True").lower() in {"1", "true", "yes"}:
+    for host in _local_ipv4s():
+        if host not in ALLOWED_HOSTS:
+            ALLOWED_HOSTS.append(host)
+
+CSRF_TRUSTED_ORIGINS = []
+for host in ALLOWED_HOSTS:
+    if host and host != "*":
+        CSRF_TRUSTED_ORIGINS.append(f"http://{host}")
+        CSRF_TRUSTED_ORIGINS.append(f"https://{host}")
+        if ":" not in host:
+            CSRF_TRUSTED_ORIGINS.append(f"http://{host}:8000")
+            CSRF_TRUSTED_ORIGINS.append(f"https://{host}:8000")
+
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 
 INSTALLED_APPS = [
@@ -125,9 +172,15 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "vulndb" / "static"]
+# Manifest только в проде: в CI/DEBUG collectstatic нет, {% static %} иначе падает.
+_STATIC_BACKEND = (
+    "django.contrib.staticfiles.storage.StaticFilesStorage"
+    if DEBUG
+    else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+)
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+    "staticfiles": {"BACKEND": _STATIC_BACKEND},
 }
 
 MEDIA_URL = "/media/"

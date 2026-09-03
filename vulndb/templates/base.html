@@ -1,13 +1,14 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ branding.product_name|default:"VULNDB" }}{% endblock %}</title>
-  <link rel="stylesheet" href="/static/css/app.css">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
   <style>:root { --accent: {{ branding.accent_color|default:"#0a7ab8" }}; --sidebar: {{ branding.sidebar_color|default:"#1b2430" }}; }</style>
-  <script src="/static/vendor/htmx.min.js" defer></script>
-  <script defer src="/static/vendor/alpine.min.js"></script>
+  <script src="{% static 'vendor/htmx.min.js' %}" defer></script>
+  <script defer src="{% static 'vendor/alpine.min.js' %}"></script>
   {% block extra_head %}{% endblock %}
 </head>
 <body>
