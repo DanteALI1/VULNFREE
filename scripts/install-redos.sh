@@ -41,7 +41,32 @@ SKIP_NGINX="${SKIP_NGINX:-0}"
 SKIP_FIREWALL="${SKIP_FIREWALL:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+find_repo_root() {
+  local cand
+  for cand in \
+    "${SCRIPT_DIR}/.." \
+    "${PWD}" \
+    "${SCRIPT_DIR}" \
+    /opt/vulndb \
+    "${APP_DIR}"; do
+    if [[ -f "${cand}/requirements.txt" && -f "${cand}/manage.py" ]]; then
+      (cd "${cand}" && pwd)
+      return 0
+    fi
+  done
+  return 1
+}
+
+REPO_ROOT="$(find_repo_root)" || {
+  echo "Не найден исходный код VULNDB (нет requirements.txt и manage.py)." >&2
+  echo "Скрипт нельзя запускать отдельно. Сначала клонируйте репозиторий:" >&2
+  echo "  git clone https://github.com/DanteALI1/VULNFREE.git" >&2
+  echo "  cd VULNFREE" >&2
+  echo "  sudo bash scripts/install-redos.sh" >&2
+  exit 1
+}
+echo "Исходники: ${REPO_ROOT}"
 
 umask 077
 
@@ -190,6 +215,13 @@ rsync -a --delete \
   --exclude 'media' \
   "${REPO_ROOT}/" "${APP_DIR}/"
 
+if [[ ! -f "${APP_DIR}/requirements.txt" || ! -f "${APP_DIR}/manage.py" ]]; then
+  echo "Копирование в ${APP_DIR} не удалось: нет requirements.txt / manage.py" >&2
+  echo "Источник был: ${REPO_ROOT}" >&2
+  ls -la "${REPO_ROOT}" >&2 || true
+  exit 1
+fi
+
 # --- PostgreSQL: роль + БД --------------------------------------------------
 DB_NAME="vulndb"
 DB_USER="vulndb"
@@ -258,12 +290,12 @@ chown -R "${APP_USER}:${APP_GROUP}" "${APP_DIR}" "${LOG_DIR}"
 chmod 640 "${APP_DIR}/.env"
 chgrp "${APP_GROUP}" "${APP_DIR}/.env"
 
-sudo -u "${APP_USER}" bash -lc "
+sudo -u "${APP_USER}" bash -c "
   set -euo pipefail
   cd '${APP_DIR}'
   . .venv/bin/activate
   pip install -q -U pip
-  pip install -q -r requirements.txt
+  pip install -q -r '${APP_DIR}/requirements.txt'
   python manage.py migrate --noinput
   python manage.py collectstatic --noinput
 "
@@ -300,7 +332,7 @@ DJANGO_BOOTSTRAP_ORG=${ORG_NAME}
 DJANGO_BOOTSTRAP_PREFIX=${LOCAL_PREFIX}
 EOF
 
-sudo -u "${APP_USER}" bash -lc "
+sudo -u "${APP_USER}" bash -c "
   set -euo pipefail
   cd '${APP_DIR}'
   set -a
