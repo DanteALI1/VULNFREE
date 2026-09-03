@@ -317,8 +317,8 @@ else
   ASSIGNEE_PASS="$(rand_password)"
 fi
 
-BOOT_ENV="$(mktemp)"
-chmod 600 "${BOOT_ENV}"
+# Файл в APP_DIR: /tmp на РЕД ОС недоступен пользователю vulndb (600 root + sticky)
+BOOT_ENV="${APP_DIR}/.bootstrap.env"
 cat > "${BOOT_ENV}" <<EOF
 DJANGO_BOOTSTRAP_ADMIN_USER=${ADMIN_USER}
 DJANGO_BOOTSTRAP_ADMIN_PASS=${ADMIN_PASS}
@@ -331,6 +331,8 @@ DJANGO_BOOTSTRAP_VERIFIER_PASS=${VERIFIER_PASS}
 DJANGO_BOOTSTRAP_ORG=${ORG_NAME}
 DJANGO_BOOTSTRAP_PREFIX=${LOCAL_PREFIX}
 EOF
+chown "${APP_USER}:${APP_GROUP}" "${BOOT_ENV}"
+chmod 600 "${BOOT_ENV}"
 
 sudo -u "${APP_USER}" bash -c "
   set -euo pipefail

@@ -264,8 +264,8 @@ export DJANGO_BOOTSTRAP_ORG="${ORG_NAME}"
 export DJANGO_BOOTSTRAP_PREFIX="${LOCAL_PREFIX}"
 
 # передаём секреты только через env файла, не в argv
-BOOT_ENV="$(mktemp)"
-chmod 600 "${BOOT_ENV}"
+# Файл в APP_DIR: /tmp недоступен пользователю приложения (600 root)
+BOOT_ENV="${APP_DIR}/.bootstrap.env"
 cat > "${BOOT_ENV}" <<EOF
 DJANGO_BOOTSTRAP_ADMIN_USER=${ADMIN_USER}
 DJANGO_BOOTSTRAP_ADMIN_PASS=${ADMIN_PASS}
@@ -278,6 +278,8 @@ DJANGO_BOOTSTRAP_VERIFIER_PASS=${VERIFIER_PASS}
 DJANGO_BOOTSTRAP_ORG=${ORG_NAME}
 DJANGO_BOOTSTRAP_PREFIX=${LOCAL_PREFIX}
 EOF
+chown "${APP_USER}:${APP_GROUP}" "${BOOT_ENV}"
+chmod 600 "${BOOT_ENV}"
 
 sudo -u "${APP_USER}" bash -c "
   set -euo pipefail
